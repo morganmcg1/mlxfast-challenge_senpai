@@ -1158,10 +1158,11 @@ percent-of-score are safe to move between sections; prices in µs/step are not.
 
 ## 9. Final fleet ledger — what each Maple student banked, and where it lives
 
-Every Maple assignment reached a terminal state and **no Maple student fired an official submission**;
-the slot belonged to the parallel campaign from 10:00Z. Nothing Maple produced was landable, because
-the one delta that would have landed was refuted (§0). What follows is what the campaign is worth
-anyway.
+**No Maple student fired an official submission**; the slot belonged to the parallel campaign from
+10:00Z. Nothing Maple produced was landable, because the one delta that would have landed was refuted
+(§0). What follows is what the campaign is worth anyway. Rows marked *in flight* were still open when
+this section was last written — read their PRs for the terminal verdict, and trust the PR over this
+table.
 
 | PR | student | outcome | banked |
 |---|---|---|---|
@@ -1175,11 +1176,23 @@ anyway.
 | #733 | maple-frieren | 13-arm REFUTED | `L-BIMODAL-CONTROL-MANUFACTURES-PHANTOM-WINS` (§5b); FUSED +55.2 µs/step confirmed loss; `NIBBLE_SPLIT` two-sided optimum; async staging load-bearing (~14 % of decode); static audit correcting a frontier review; two M5-only follow-ups (§7 item 5); declined an unjustifiable flip |
 | #737 | — | closed | — |
 | #686 | maple-fern | NULL verdict, closed | **Winner's-curse correction of my probability table** (§6.5b); the "we lose on draw variance, not code" framing; `L-ENV-DEFAULT-OFF-SHIPS-NOTHING` (§5b); the 1023-vs-128 step trap (§6.6 (b)); the ≈14:40Z channel deadline (§6.4); n=6 paired null on §0; retracted her own overclaim unprompted |
-| #741 | maple-edward | in flight at time of writing | Provenance audit, redirected to the µs/step currency census (§6.6) |
+| #741 | maple-edward | *in flight* (13:15Z / 15:00Z) | Provenance audit, redirected to the µs/step currency census (§6.6) |
+| #743 | maple-tanjiro | *in flight* (14:30Z / 16:15Z) | Prefill budget: the 27.88 ms residual is `[PROJ]`, band 21.4–56.0 ms; plus the 191.2-vs-187.872 µs/tok definition check (§7 item 1) |
+| #744 | maple-alphonse | *in flight* (14:30Z / 16:15Z) | Decode wall-vs-busy: first deliverable is whether the 8919 µs wall exists at all — I found no primary source for it (§7 item 2) |
+| #745 | maple-fern | *in flight* (13:40Z / 14:20Z) | **Channel concurrency verdict** — resolves whether the campaign has one draw left or two; read-only, resolves my own unproven serial-service assumption (§6.4) |
+| #746 | maple-nezuko | *in flight* (14:00Z / 15:30Z) | Pre-flight validity gates, each **observed to fail** on an injected defect; protects the last draw from a mechanical zero (§1/§3 numbers) |
 
-Three of the eleven results are corrections **to the advisor**, two of them found before I found them
-myself. That ratio is the single healthiest number in this document, and it is the reason the manifest
-can be trusted at all: the errors in §0 were caught by the fleet, in writing, on the record, by people
-who were told to check me and did.
+Three of the eleven closed results are corrections **to the advisor**, two of them found before I found
+them myself. That ratio is the single healthiest number in this document, and it is the reason the
+manifest can be trusted at all: the errors in §0 were caught by the fleet, in writing, on the record,
+by people who were told to check me and did.
+
+The last four assignments deliberately buy **no delta at all**. Once §6.5c repriced even money at
+**+1.26 % ≈ 82 µs/step ranked** against a largest-ever measured per-knob effect of ≈0.8 µs/step, the
+highest-expected-value use of the remaining fleet-hours stopped being candidate manufacture and became
+(a) killing two ghost numbers before anyone spends a slot chasing them (#743, #744), (b) finding out how
+many draws actually remain (#745), and (c) making sure the last one cannot be worth zero for a
+mechanical reason (#746). That reallocation is itself a result, and rule 15 is why it is written down
+here rather than left implicit.
 
 _Written by meridian, an AI agent acting as the Maple campaign research advisor._

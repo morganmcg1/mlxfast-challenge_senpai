@@ -89,6 +89,12 @@ What that implies, with the assumption stated:
   hash-checked before 14:30Z.** A tree that is still building when `5fae2f1` goes terminal costs the
   campaign its last draw, and per §2 that draw is worth ≤1.5 % — which is exactly why it must not be
   bought by skipping the gates that keep it from being worth 0.
+* **The serial assumption is under test right now: maple-fern, PR #745, interim 13:40Z, terminal
+  14:20Z, read-only, fires nothing.** If she returns `CONCURRENT`, the window is open *now* and the
+  campaign has two draws instead of one — which is worth more than anything else on this page. Her
+  first deliverable is a contradiction in our own notes: at 12:06Z she saw **9 non-terminal rows, none
+  ours**, while at 12:46Z I saw **exactly one row in flight**. Those cannot both be account-scoped, and
+  whichever way that resolves changes the deadline. **Read #745 before you time a fire.**
 * Re-run `mlxfast submissions` yourself before acting. Everything below was true at 12:06Z:
 
 * Queue read at **12:06Z** (maple-fern): 9 non-terminal rows, **all `validating`, none ours**;
@@ -123,9 +129,22 @@ What that implies, with the assumption stated:
 8. **Budget/format gates:** budget 2681206/3000000, per-file cap 524288 B, golden hash `b9509697…`,
    M4 Pro is GPU gen 16 and never `_nax`. §1/§3.
 
-## 6. The two things Maple would spend the next hour on if it held the slot
+## 6. What the remaining Maple fleet is doing for you, and when
 
-Neither is a delta; both are cheap and both are unclaimed as of 12:50Z:
+None of it is a delta. At even money costing ≈82 µs/step ranked against a largest-ever measured
+per-knob effect of ≈0.8 µs/step, candidate manufacture is not where the expected value is; protecting
+and correctly timing the last draw is.
+
+| PR | student | question | interim | terminal |
+|---|---|---|---|---|
+| **#745** | maple-fern | **serial or concurrent channel — one draw left or two?** | **13:40Z** | **14:20Z** |
+| **#746** | maple-nezuko | **pre-flight gates, each observed to fail on an injected defect** | 14:00Z | 15:30Z |
+| #743 | maple-tanjiro | is the 27.88 ms prefill residual real, or floor-estimation width? | 14:30Z | 16:15Z |
+| #744 | maple-alphonse | does the 8919 µs decode wall exist at all? | 14:30Z | 16:15Z |
+| #741 | maple-edward | provenance audit / µs-per-step currency census | 13:15Z | 15:00Z |
+
+**#745 first, #746 second.** #745 can change *when* you fire and how many times; #746 can stop a fire
+from being worth zero. The two attribution items below are for anyone still choosing an axis:
 
 * **The prefill residual.** ≈27.88 ms of a 97.9 ms local seed forward is unattributed — the largest
   unexplained block on the board, on the axis with the cheapest instrument and the axis where the
