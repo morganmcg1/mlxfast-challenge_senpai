@@ -324,6 +324,17 @@ let lagunaSharedScaleHalvedEnabled =
 let lagunaSharedQMVWideCodesEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_QMV_WIDE_CODES"] == "1"
 
+// R119-C research control: threadgroup width of the shared-expert SwiGLU QMV.
+// 64 is the shipped geometry; 128 and 256 keep the work byte-identical and only
+// change the static threadgroup -> core assignment granularity.
+let lagunaSharedSwiGLUQMVThreadgroupWidth: Int = {
+    switch ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_QMV_TG"] {
+    case "128": return 128
+    case "256": return 256
+    default: return 64
+    }
+}()
+
 
 
 
@@ -7118,7 +7129,9 @@ for (uint row = 0; row < 2; ++row) {
 
 
 
-private func lagunaSharedSwiGLUQMVRows1Source(halved: Bool) -> String {
+private func lagunaSharedSwiGLUQMVRows1Source(
+    halved: Bool, simdgroupsPerThreadgroup: Int = 2
+) -> String {
     let scaleRowBytes = halved ? 64 : 128
     let patch =
         halved
@@ -7143,7 +7156,7 @@ constexpr uint values_per_lane = 16;
 uint tile = threadgroup_position_in_grid.x;
 uint simd_group = simdgroup_index_in_threadgroup;
 uint lane = thread_index_in_simdgroup;
-uint row = tile * 2 + simd_group;
+uint row = tile * \(simdgroupsPerThreadgroup) + simd_group;
 
 const device uint8_t* gate_row_weight =
     (const device uint8_t*)fused_weight +
@@ -7211,6 +7224,28 @@ private let lagunaSharedSwiGLUQMVRows1HalvedKernel = MLXFast.metalKernel(
     inputNames: ["input", "fused_weight", "fused_scales"],
     outputNames: ["activated"],
     source: lagunaSharedSwiGLUQMVRows1Source(halved: true),
+    header: lagunaSharedSwiGLUQMVHeader,
+    ensureRowContiguous: true
+)
+
+// R119-C research arms: identical per-row arithmetic, wider threadgroups. MLX
+// caches compiled libraries by kernel name, so each geometry needs its own name.
+private let lagunaSharedSwiGLUQMVRows1HalvedTG128Kernel = MLXFast.metalKernel(
+    name: "laguna_shared_nvfp4_swiglu_qmv_rows1_halved_tg128_bf16_v1",
+    inputNames: ["input", "fused_weight", "fused_scales"],
+    outputNames: ["activated"],
+    source: lagunaSharedSwiGLUQMVRows1Source(
+        halved: true, simdgroupsPerThreadgroup: 4),
+    header: lagunaSharedSwiGLUQMVHeader,
+    ensureRowContiguous: true
+)
+
+private let lagunaSharedSwiGLUQMVRows1HalvedTG256Kernel = MLXFast.metalKernel(
+    name: "laguna_shared_nvfp4_swiglu_qmv_rows1_halved_tg256_bf16_v1",
+    inputNames: ["input", "fused_weight", "fused_scales"],
+    outputNames: ["activated"],
+    source: lagunaSharedSwiGLUQMVRows1Source(
+        halved: true, simdgroupsPerThreadgroup: 8),
     header: lagunaSharedSwiGLUQMVHeader,
     ensureRowContiguous: true
 )
@@ -7336,19 +7371,31 @@ func lagunaSharedSwiGLUQMV(
                 LagunaConstants.hiddenSize / 16))
     }
 
+    let widened =
+        halved && !lagunaSharedQMVWideCodesEnabled
+        && lagunaSharedSwiGLUQMVThreadgroupWidth != 64
     let kernel =
         halved
         ? (lagunaSharedQMVWideCodesEnabled
             ? lagunaSharedSwiGLUQMVRows1WideKernel
-            : lagunaSharedSwiGLUQMVRows1HalvedKernel)
+            : (lagunaSharedSwiGLUQMVThreadgroupWidth == 256
+                ? lagunaSharedSwiGLUQMVRows1HalvedTG256Kernel
+                : (lagunaSharedSwiGLUQMVThreadgroupWidth == 128
+                    ? lagunaSharedSwiGLUQMVRows1HalvedTG128Kernel
+                    : lagunaSharedSwiGLUQMVRows1HalvedKernel)))
         : (lagunaSharedSwiGLUQMVRows1Enabled
             ? lagunaSharedSwiGLUQMVRows1Kernel
             : lagunaSharedSwiGLUQMVKernel)
-    let tiles = lagunaSharedSwiGLUQMVRows1Enabled ? 256 : 128
+    let threads = widened ? lagunaSharedSwiGLUQMVThreadgroupWidth : 64
+    let rowsPerThreadgroup = threads / 32
+    let tiles =
+        lagunaSharedSwiGLUQMVRows1Enabled
+        ? LagunaConstants.sharedExpertIntermediateSize / rowsPerThreadgroup
+        : 128
     return kernel(
         [input, fusedWeight, fusedScales],
-        grid: (tiles * 64, 1, 1),
-        threadGroup: (64, 1, 1),
+        grid: (tiles * threads, 1, 1),
+        threadGroup: (threads, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.sharedExpertIntermediateSize]],
         outputDTypes: [.bfloat16]
     )[0]
