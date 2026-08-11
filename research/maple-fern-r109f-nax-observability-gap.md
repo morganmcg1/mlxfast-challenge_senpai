@@ -232,20 +232,55 @@ adjudication onto the local iterate". That is right for decode and **wrong for
 prefill**, and I would rather state the exception than let the recommendation be
 applied where it silently returns 0.00 %.
 
-The corrected form:
+The corrected form — ~~itself superseded, see the box below~~:
 
-> Move **decode** arm adjudication onto the local iterate, where the kernels are
+> ~~Move **decode** arm adjudication onto the local iterate, where the kernels are
 > identical to the ranked host's and repeatability is 0.05–0.10 %. Do not
 > attempt to adjudicate **prefill** arms at all on this host: the ranked prefill
 > path is NAX and this GPU cannot run it, so a local A/B returns 0.00 % whatever
 > the arm does. Prefill arms are adjudicable only on the ranked host, at a cost
-> (≈10² receipts/arm) that the shared single-slot channel cannot fund.
+> (≈10² receipts/arm) that the shared single-slot channel cannot fund.~~
 
-This also puts a floor under a claim I should be careful about. In the companion
-I wrote that local iterate is a "4–7× better instrument" than ranked. That
-comparison was computed on the *decode* leg and it holds there. It does not
-transfer to prefill, where the honest ratio is not a number: one instrument
-reads 0.00 % by construction and the other needs hundreds of receipts.
+> ⚠ **CORRECTED (twice over).** Both halves of that blockquote were wrong, and
+> they were wrong in *opposite* directions, which is why the net recommendation
+> survives but its justification does not.
+>
+> **Left half, too optimistic.** Local decode repeatability is **≈0.35 % per
+> run**, not 0.05–0.10 % (§7.2, CORRECTION 5). That is *worse* than the ranked
+> candidate-decode instrument sd of 0.2646 %. Local iterate is not the tighter
+> instrument on decode; it is the *faster* one — ~155 s on an unowned slot versus
+> a shared per-account channel that admits one submission at a time. Its real
+> advantage is throughput of about one order of magnitude, and it buys tightness
+> only by averaging (~50 runs to reach ~0.05 %).
+>
+> **Right half, far too pessimistic.** "≈10² receipts/arm" was read off the
+> *published score*, whose pooled instrument sd is 0.5169 %. A prefill arm does
+> not have to be read there. Read on the leg it actually targets — the
+> **candidate prefill** leg, pooled sd **0.0750 %** — a 0.30 % prefill arm needs
+> **2 receipts** and a 0.20 % arm needs **4**. The channel funds that easily.
+> maple-tanjiro's A2 (fused-NAX `bn` 128→64) is therefore **not** a measurement
+> dead end; it is one of the cheapest arms in the whole slate.
+>
+> Net: the *advice* still stands — screen decode locally, never screen prefill
+> locally — but for a different reason. Screen decode locally because it is cheap
+> and immediate, then confirm on ranked because ranked is tighter. Adjudicate
+> prefill on ranked because it is the only host that can see it at all, and it
+> turns out to be cheap there.
+
+This also disposes of a claim I should have been more careful about. In the
+companion I wrote that local iterate is a ~~"4–7× better instrument"~~ than
+ranked, and I defended it here as a *decode* result that holds on decode even if
+it does not transfer to prefill. **That defence fails too.** The 4–7× figure
+divided a mis-measured local sd (0.05–0.10 %) into a ranked *score* sd; with the
+local sd corrected to 0.35 % and the ranked comparison moved to the matching
+decode leg (0.2646 %), the ratio inverts to roughly **0.75×** — local is
+*slightly worse* per observation. The claim is withdrawn on both legs, not
+narrowed to one.
+
+The honest summary of the two hosts is that neither dominates: **each is the
+better instrument at the leg the other cannot measure.** Local sees decode
+quickly and prefill not at all; ranked sees prefill precisely and decode
+precisely, but rations observations.
 
 A second, smaller correction. My local 2×2 ledger recorded prefill legs as
 "≈0.001122 s across all arms", which I read as "prefill is unaffected by these
@@ -259,13 +294,29 @@ than it was sound.
 
 ## 5. What to do instead
 
-1. **Retire A1 and A2 as measurement dead ends** and say so explicitly at the
-   05:00Z checkpoint, with §1 and §2 as the evidence. A1 additionally does
-   nothing at default env.
+1. ~~**Retire A1 and A2 as measurement dead ends** and say so explicitly at the
+   05:00Z checkpoint, with §1 and §2 as the evidence.~~ **Retire A1 only.** A1 is
+   a genuine dead end on two independent counts: it does nothing at default env
+   (the `darkbloom_expert_down_bn` 64→32 edit is dead code twice over) *and* it
+   is NAX-unreachable here. A2 is a different case, and this recommendation was
+   wrong about it.
+
+   > ⚠ **CORRECTED.** A2 (fused-NAX `bn` 128→64) is a *local* measurement dead
+   > end but **not** a measurement dead end. It is unmeasurable only because I was
+   > reading it off `officialScore` (pooled instrument sd 0.5169 %). Read on the
+   > leg it targets — **candidate prefill**, pooled sd **0.0750 %** — a 0.30 %
+   > effect needs **2 receipts** and a 0.20 % effect needs **4**. That is
+   > affordable on the shared channel and makes A2 one of the *cheapest* arms in
+   > the R109 slate rather than an abandoned one. maple-tanjiro should be told to
+   > keep it and to report `officialMetrics.prefill_seconds_per_token`, not the
+   > score.
 2. **Ask #693 which kernel family its port targets** before it spends effort. A
    ping-pong staging change to `sdpa_vector` or the `gather_qmv` path is
    locally measurable and worth having; the identical idea applied to
-   `sdpa_full_self_attention_nax` is not adjudicable by anyone in this campaign.
+   `sdpa_full_self_attention_nax` is ~~not adjudicable by anyone in this
+   campaign~~ **adjudicable on the ranked candidate-prefill leg at ~2 receipts,
+   but invisible locally** — so the question still matters, because it decides
+   *which host* can screen the arm, not whether the arm is knowable.
 3. **Redirect the search to the non-NAX decode families**: `qmv`, `qvm`,
    `gather_qmv`, `gather_qvm`, `sdpa_vector`, `sdpa_vector_2pass`. These are
    0.638 of the score's elasticity, they are the same code on both hosts, and
@@ -281,8 +332,13 @@ than it was sound.
 
 ## 6. What this does *not* claim
 
-- It does not claim the ranked prefill path is already optimal. It claims
-  nobody in this campaign can measure whether a change to it helps.
+- It does not claim the ranked prefill path is already optimal. ~~It claims
+  nobody in this campaign can measure whether a change to it helps.~~
+  **Corrected (§4): it claims nobody can measure that *locally*.** On the ranked
+  host the candidate-prefill leg has a pooled instrument sd of 0.0750 % — the
+  *tightest* axis in the whole receipt schema — so a prefill change is
+  measurable there at ~2 receipts. The gap this document describes is a gap in
+  *local* observability, not in knowability.
 - It does not claim NAX makes the ranked host faster in some unfair way. The
   baseline legs also run on NAX, and the score is a ratio, so NAX cancels to
   first order in the published number. What does not cancel is *observability*:

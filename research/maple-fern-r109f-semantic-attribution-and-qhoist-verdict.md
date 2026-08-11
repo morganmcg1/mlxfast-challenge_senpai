@@ -295,7 +295,12 @@ Local host is much slower than the ranked host (decode 12953 vs 4932 µs =
 ### 5.1 atlas v3_tg128 result — exact, and the best of the four arms
 
 `v3_tg128` is **−3.37 µs (−0.0260 %)** against HEAD. Local decode
-repeatability is 0.05–0.10 %, so this is *inside* the noise band: v3 is not a
+repeatability is ~~0.05–0.10 %~~ **≈0.35 % per run** (see
+`maple-fern-r109f-nax-observability-gap.md` §7.2, CORRECTION 5 — measured from an
+8-run sweep on this host, σ ≈ 49 µs on a 12 931.6 µs mean), so this is *inside*
+the noise band **by an even wider margin than stated here**: the arm is ~13× below
+the per-run resolution, not 0.3–0.5× below it. The conclusion is unchanged and in
+fact strengthened — v3 is not a
 measurable win locally, but it is also demonstrably not a loss, and it is
 byte-identical in kernel body to `pkg-e27f1ce`, the fastest non-maple package
 in the receipt stream (4890.7 µs). The patch is four edits in
