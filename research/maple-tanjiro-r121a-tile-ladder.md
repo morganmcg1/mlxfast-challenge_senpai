@@ -90,7 +90,13 @@ Consequences that shape this ladder:
 So `SM = SN = 16` (TM = TN = 1) is illegal. `(SM,SN)` in
 {(16,32), (32,16), (32,32), (64,32), (32,64)} are legal. Every arm below is
 checked against this rule in the table, and arms 1/2/4 were additionally put
-through a standalone Metal compile of the exact tuple (§5).
+through a standalone Metal compile of the exact tuple (§7.3).
+
+That compile **confirmed the rule empirically, including its failure mode**: the
+illegal `(16,16)` tuple compiled with exit 0 and zero diagnostics, yet emitted
+no MMA instruction at all, while all five shipped tuples emitted 48 each
+(§7.3). The silent-empty hazard is real, and this rule is the only thing
+standing between a tile edit and a silently wrong prefill.
 
 The kernel is a register-tile design: `NAXTile` loads straight from device
 memory, so threadgroup memory is ~0 and residency is bound by the **96
@@ -192,20 +198,16 @@ traffic that `SM: 32 -> 16` implies. Score deltas use 0.3781 %/ms.
 
 | # | patch / commit | one-line diff | reachability | dispatches touched (M x N x K) | tuple after | SM,SN -> TM,TN legal? | TGs before -> after | TG/core (40 cores) | simdgroups (% of 3840) | Delta_ideal prefill | Delta_real prefill | Delta score | Delta decode |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| **1** | `arm1-regular-skinny-sm16.patch` / `ARM1_SHA` | in the `devc` branch add `if (N <= 1024) { bm = 32; }` | PROVEN-JIT, `matmul.cpp:957` -> `:186` -> `jit_kernels.cpp:977` | 78 wk/wv, 512x1024x2048 | 32/128/256 2/4 | 16,32 -> 1,2 **legal** (`TN%2==0`) | 64 -> 128 | 1.6 -> 3.2 | 512 -> 1024 (13.3% -> 26.7%) | **-5.62 ms** (-5.84%) | -2.8 to -5.6 ms | **+1.06% to +2.13%** | 0 (`:1252`) |
-| **2** | `arm2-splitk-shallow-sm16.patch` / `ARM2_SHA` | splitk branch A `bm = bn = 64;` -> `bm = 32; bn = 64;` | PROVEN-JIT, `matmul.cpp:922` -> `:645` -> `jit_kernels.cpp:1049` | 38 router 512x256x2048 + 39 g_proj 512x{64,48}x2048 | 32/64/256 2/2 | 16,32 -> 1,2 **legal** | router 64 -> 128; g_proj 16 -> 32 | 1.6 -> 3.2; 0.4 -> 0.8 | router 256 -> 512; g_proj 64 -> 128 | **-2.68 ms** (-2.79%) | -0.8 to -2.7 ms | **+0.30% to +1.01%** | 0 (`:1252`) |
-| **3** | `arm3-splitk-depth-512.patch` / `ARM3_SHA` | `K <= 2048` -> `split_k_partition_size = 512` (was 1024) | PROVEN-JIT, same as arm 2 | same 77 as arm 2 | 64/64/256 2/2, parts 2 -> 4 | 32,32 -> 2,2 **legal** (unchanged) | router 64 -> 128; g_proj 16 -> 32 | 1.6 -> 3.2; 0.4 -> 0.8 | router 256 -> 512; g_proj 64 -> 128 | **-2.68 ms** (-2.79%) | -0.8 to -2.7 ms | **+0.30% to +1.01%** | 0 (`:1252`) |
-| **4** | `arm4-regular-wide-sm64.patch` / `ARM4_SHA` | in the `devc` branch add `if (N >= 4096) { bm = 128; }` | PROVEN-JIT, same as arm 1 | 31 wq SW 512x8192x2048 + 10 wq full 512x6144x2048 | 128/128/256 2/4 | 64,32 -> 4,2 **legal** | wq SW 512 -> 256; wq full 384 -> 192 | 12.8 -> 6.4; 9.6 -> 4.8 | wq SW 4096 -> 2048; wq full 3072 -> 1536 | **+1.44 ms** (+1.50%) | 0 to +2.9 ms | **-0.55%** (predicted regression) | 0 (`:1252`) |
-| **5** | `arm5-prefill-tile-default-off.patch` / `ARM5_SHA` | flip `darkbloom_steel_prefill_tile()` default to OFF | PROVEN-JIT, `matmul.cpp:674` | 40 wo, 512x2048x{8192,6144} | 128/128/512 4/4 | 32,32 -> 2,2 **legal** (unchanged) | 512 -> 128 (16-simdgroup TGs) | 12.8 -> 3.2 | 2048 -> 2048 (53.3%, **unchanged**) | **0.00 ms** | -0.2 to +0.2 ms | 0 +/- 0.10% | 0 (`:1252`) |
+| **1** | `arm1-regular-skinny-sm16.patch` / `9791d02b` | in the `devc` branch add `if (N <= 1024) { bm = 32; }` | PROVEN-JIT, `matmul.cpp:957` -> `:186` -> `jit_kernels.cpp:977` | 78 wk/wv, 512x1024x2048 | 32/128/256 2/4 | 16,32 -> 1,2 **legal** (`TN%2==0`) | 64 -> 128 | 1.6 -> 3.2 | 512 -> 1024 (13.3% -> 26.7%) | **-5.62 ms** (-5.84%) | -2.8 to -5.6 ms | **+1.06% to +2.13%** | 0 (`:1252`) |
+| **2** | `arm2-splitk-shallow-sm16.patch` / `02a3ee63` | splitk branch A `bm = bn = 64;` -> `bm = 32; bn = 64;` | PROVEN-JIT, `matmul.cpp:922` -> `:645` -> `jit_kernels.cpp:1049` | 38 router 512x256x2048 + 39 g_proj 512x{64,48}x2048 | 32/64/256 2/2 | 16,32 -> 1,2 **legal** | router 64 -> 128; g_proj 16 -> 32 | 1.6 -> 3.2; 0.4 -> 0.8 | router 256 -> 512; g_proj 64 -> 128 | **-2.68 ms** (-2.79%) | -0.8 to -2.7 ms | **+0.30% to +1.01%** | 0 (`:1252`) |
+| **3** | `arm3-splitk-depth-512.patch` / `38c83830` | `K <= 2048` -> `split_k_partition_size = 512` (was 1024) | PROVEN-JIT, same as arm 2 | same 77 as arm 2 | 64/64/256 2/2, parts 2 -> 4 | 32,32 -> 2,2 **legal** (unchanged) | router 64 -> 128; g_proj 16 -> 32 | 1.6 -> 3.2; 0.4 -> 0.8 | router 256 -> 512; g_proj 64 -> 128 | **-2.68 ms** (-2.79%) | -0.8 to -2.7 ms | **+0.30% to +1.01%** | 0 (`:1252`) |
+| **4** | `arm4-regular-wide-sm64.patch` / `6b2a0832` | in the `devc` branch add `if (N >= 4096) { bm = 128; }` | PROVEN-JIT, same as arm 1 | 31 wq SW 512x8192x2048 + 10 wq full 512x6144x2048 | 128/128/256 2/4 | 64,32 -> 4,2 **legal** | wq SW 512 -> 256; wq full 384 -> 192 | 12.8 -> 6.4; 9.6 -> 4.8 | wq SW 4096 -> 2048; wq full 3072 -> 1536 | **+1.44 ms** (+1.50%) | 0 to +2.9 ms | **-0.55%** (predicted regression) | 0 (`:1252`) |
+| **5** | `arm5-prefill-tile-default-off.patch` / `d26ae5b9` | flip `darkbloom_steel_prefill_tile()` default to OFF | PROVEN-JIT, `matmul.cpp:674` | 40 wo, 512x2048x{8192,6144} | 128/128/512 4/4 | 32,32 -> 2,2 **legal** (unchanged) | 512 -> 128 (16-simdgroup TGs) | 12.8 -> 3.2 | 2048 -> 2048 (53.3%, **unchanged**) | **0.00 ms** | -0.2 to +0.2 ms | 0 +/- 0.10% | 0 (`:1252`) |
 | **6** | stack 1+2+3 | all three, disjoint edits | – | 155 starved dispatches | – | – | – | – | router 256 -> 1024; g_proj 64 -> 256; wk/wv 512 -> 1024 | **-9.64 ms** (-10.0%) | -3.9 to -9.6 ms | **+1.47% to +3.64%** | 0 (`:1252`) |
 
-Gate columns:
-
-| # | Metal tuple compile (§6) | `swift build -c release` | editable budget | local no-op | worktree |
-|---|---|---|---|---|---|
-| 1 | `BUILD_TABLE` | | | | |
-
-(The gate results table is filled in §7 below with the measured outcomes.)
+Gate outcomes for every arm are in §7: build in §7.1, editable budget in §7.2,
+Metal tuple legality in §7.3, upstream equivalence versus the unchanged base in
+§7.4. All five arms passed all four; none was timed (§7.6).
 
 ### 5.1 Arithmetic behind each prediction
 
@@ -290,10 +292,14 @@ change would be a red flag about the diff, not evidence about the M5.
 
 ### 6.2 Empirical check (union of all five diffs)
 
-`research/run_upstream_equivalence.sh` on the union, plus the public golden
-hash. Results in §7. Reference hash that must not move:
-`b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63`.
+`research/run_upstream_equivalence.sh` on the union, and again on the reverted
+base-identical head as a control. Results in §7.4.
 `MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT=1` was **not** used anywhere.
+
+The golden-hash leg could not run here (§7.5): the fixture
+`correctness_golden.json` is absent from this checkout, and `golden_sha256` is
+in any case a hash of that fixture file rather than of computed output, so a
+source edit cannot move it.
 
 Known pre-existing base property on gen-16, for interpretation only: the
 prefill teacher-forced case reports `maximumAbsoluteLogitError = 0.125`,
@@ -311,7 +317,148 @@ Results in §7.3.
 
 ## 7. Gate results
 
-`FILL_GATES`
+All gates below were run on this host (M4 Pro, Apple GPU generation 16,
+`applegpu_g16s`, 48 GB, low-memory startup profile). Every arm commit is a
+single-arm tree branched off the assignment head `898522ab`.
+
+### 7.1 Per-arm release build
+
+`swift build -c release --force-resolved-versions`, then
+`git checkout -- Package.resolved`, once per arm, from a clean tree
+(driver `/tmp/build_arms.sh`, raw results `/tmp/r121a-build-results.txt`).
+
+| arm | commit | rc | wall secs | compiler error lines |
+|---|---|---|---|---|
+| base (control) | `898522ab` | 0 | 66 | 0 |
+| 1 regular skinny SM16 | `9791d02b` | 0 | 33 | 0 |
+| 2 splitk shallow SM16 | `02a3ee63` | 0 | 34 | 0 |
+| 3 splitk depth 512 | `38c83830` | 0 | 33 | 0 |
+| 4 regular wide SM64 | `6b2a0832` | 0 | 34 | 0 |
+| 5 prefill tile default off | `d26ae5b9` | 0 | 33 | 0 |
+| union of 1-5 | `780b0579` | 0 | - | 0 |
+
+`worktree_after` was clean for every arm, so no build mutated
+`Package.resolved` or left artifacts staged.
+
+Arms 1 and 4 both edit the same `devc` block, so the union is **not** a naive
+patch stack: applying arm 4 on top of arm 1 fails with `patch does not apply`.
+The union commit `780b0579` merges them by hand so that both guards sit inside
+the block (`if (N <= 1024) { bm = 32; }` and `if (N >= 4096) { bm = 128; }`).
+Union diff versus base: `1 file changed, 9 insertions(+), 2 deletions(-)`.
+This matters for sequencing: **arms 1 and 4 cannot be stacked, only chosen
+between**, and the §5 arm-6 stack is 1+2+3 precisely because 4 collides.
+
+### 7.2 Editable budget, on the union (worst case)
+
+```
+editable budget OK: current=2686722/3000000 bytes headroom=313278
+                    growth=-297127/262144 files=142 (base=142)
+```
+
+Growth is negative because the arms delete more than they add, so no arm can
+approach the 262,144-byte per-review growth cap or the 3,000,000-byte total.
+File count is unchanged at 142, so no arm adds a submitted path.
+
+### 7.3 Metal tuple legality (the §2 empty-MMA trap)
+
+`_nax` is never compiled on gen-16, so `swift build` cannot validate a tuple.
+Substitute check: each tuple compiled standalone in `/tmp/tuplecheck` with
+`xcrun metal -x metal -Wall -Wextra -fno-fast-math` against the repo headers,
+using the deployment target recorded in the real worker recipe
+(`.build-worker/.../mlx-metallib.dir/build.make:736`), then the isolated `.air`
+sized and disassembled with `metal-objdump`.
+
+| tuple (bm,bn,bk,wm,wn) | SM/SN -> TM/TN | compiles | isolated `.air` | MMA calls | verdict |
+|---|---|---|---|---|---|
+| fused 64,128,256,2,4 (base) | 32/32 -> 2/2 | yes | 229,008 B | 48 | **LEGAL** |
+| fused 32,128,256,2,4 (**arm 1**) | 16/32 -> 1/2 | yes | 206,112 B | 48 | **LEGAL** |
+| fused 128,128,256,2,4 (**arm 4**) | 64/32 -> 4/2 | yes | 266,784 B | 48 | **LEGAL** |
+| splitk 64,64,256,2,2 (base) | 32/32 -> 2/2 | yes | 171,760 B | 48 | **LEGAL** |
+| splitk 32,64,256,2,2 (**arm 2**) | 16/32 -> 1/2 | yes | 154,624 B | 48 | **LEGAL** |
+| *negative control* fused 32,64,256,2,4 | 16/16 -> 1/1 | **yes, 0 warnings** | **78,112 B** | **0** | **EMPTY** |
+
+The negative control is what makes this discriminating rather than suggestive:
+an illegal `(TM=1, TN=1)` tuple compiles with exit 0 and no diagnostic, yet its
+`gemm_loop` instantiation disappears from the AIR entirely and the file falls to
+2.6x smaller than the smallest legal case. Against that calibrated floor all
+five shipped tuples sit in a 154-267 KB band, each carrying a live
+`mlx::steel::gemm_loop` whose mangled name literally encodes the expected
+`SM`/`SN` (`Ls16ELs32E`, `Ls64ELs32E`, ...) and whose body contains the
+`matmul2d` run call. Size and symbol evidence agree independently.
+
+Two corrections to the §2 derivation fall out of this and are already folded
+into the rule above:
+
+1. `gemm_nax.h:35-36` uses `TN = SN/16`, **not** `SN/32`. That is why `SM = 16`
+   tuples are legal at all.
+2. The trap is therefore triggered by **odd `TN > 1`, or `TN == 1` with odd
+   `TM`** - not by a small `BM`. The multiply also lives out-of-line in
+   `gemm_loop`, not in the kernel entry point, so per-tuple attribution must
+   follow that symbol; counting MMA in the entry function alone reports 0 for
+   *every* tuple, legal or not.
+
+Arms 3 and 5 change no tuple (both stay at `SM = SN = 32`), so they inherit the
+base rows.
+
+### 7.4 Upstream equivalence, union versus unchanged base
+
+`research/run_upstream_equivalence.sh` (bare test filter, debug-metallib
+repair, refuses to call a zero-test invocation a pass). Run twice: once on the
+union tree `780b0579`, once on the reverted, base-identical head `9fb2048b`.
+
+| | union `780b0579` | base-identical `9fb2048b` |
+|---|---|---|
+| tests executed | 1 (non-zero, gate honoured) | 1 |
+| `EQUIVALENCE_EXACT_STEPS` | 8 | 8 |
+| every `runtimeToken == upstreamToken` | yes, 9/9 steps | yes, 9/9 steps |
+| prefill `maximumAbsoluteLogitError` | 0.125 | 0.125 |
+| prefill `meanAbsoluteLogitError` | 0.011933609 | 0.011933609 |
+| all 8 decode steps | 0.0 / 0.0 exact | 0.0 / 0.0 exact |
+| `EQUIVALENCE_EXIT` | 1 | 1 |
+
+The two reports are **identical to every printed digit**, including the failing
+prefill tolerance and the exit code. That is the empirical form of the §6.1
+proof: on generation 16 the five arms are inert, because `use_nax` is false and
+the `_nax` host functions at `matmul.cpp:922` and `:957` are never entered.
+
+The exit 1 is a pre-existing base property, not a regression introduced here:
+the strict gate demands `maximumAbsoluteLogitError` tolerance `0.0`, and the
+unchanged base already reports `0.125` on this host
+(independently recorded at `research/CRS.md:8168-8173`, `:3576-3577`).
+**`MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT=1` was not set anywhere in this
+experiment**, and no gate was relaxed; the base control is what discharges the
+finding instead. Note that all tokens match, so this is a logit-tolerance
+artefact of gen-16 arithmetic rather than a behaviour difference.
+
+### 7.5 Golden-hash gate: not runnable here, and cheaper than assumed
+
+`correctness_golden.json` does not exist in this checkout, so the hash gate
+could not be executed. Worth recording *why* that is not a gap: the
+`golden_sha256` emitted at `benchmark.sh:2266-2288` is literally
+`shasum -a 256` of the golden **fixture file** (path default
+`correctness_golden.json`, override `MLXFAST_CORRECTNESS_GOLDEN_PATH`,
+`benchmark.sh:149`) - it hashes the checked-in expectation, not any computed
+output. A source edit therefore cannot move it, and verifying it needs no
+benchmark run at all. `benchmark.sh:2294-2301` separately warns that the public
+goldens were generated on M5, so a near-tie token mismatch is expected on
+another generation.
+
+### 7.6 What is still unmeasured
+
+No timing gate was run and none is claimable on this host: the M4 Pro reports
+Apple GPU generation 16 and never selects `_nax`, which `AGENTS.md` calls out
+directly ("an M4 prefill result is not evidence for an `_nax` change"). Every
+millisecond in §5 is a model prediction with one fitted parameter, not a
+measurement. The ladder is ready to draw on M5; it has not been drawn.
+
+One arm is an exception worth flagging to the advisor: **arm 5 needs no build
+at all.** `darkbloom_steel_prefill_tile()` reads an environment variable, so
+`DARKBLOOM_STEEL_PREFILL_TILE=0` reproduces the arm-5 tree on an unmodified
+binary. Its predicted effect is exactly 0.00 ms (both settings land on
+`SM = SN = 32`, 2048 simdgroups, `U = 0.533`), so it is the cheapest possible
+falsification test of the wave model itself: if a free env-var flip moves
+prefill measurably, the model in §3.1 is wrong and the rest of the ladder
+should not be trusted.
 
 ## 8. Pre-registered interpretation
 
@@ -350,5 +497,30 @@ branch head, so five remote branches are not creatable from here. Instead:
   arm *n-1* and applies arm *n*, so each recorded SHA is a single-arm tree that
   can be checked out and timed directly.
 
+Single-arm trees, ready to check out and time:
+
+| arm | commit | patch |
+|---|---|---|
+| 1 regular skinny SM16 | `9791d02b` | `arm1-regular-skinny-sm16.patch` |
+| 2 splitk shallow SM16 | `02a3ee63` | `arm2-splitk-shallow-sm16.patch` |
+| 3 splitk depth 512 | `38c83830` | `arm3-splitk-depth-512.patch` |
+| 4 regular wide SM64 | `6b2a0832` | `arm4-regular-wide-sm64.patch` |
+| 5 prefill tile default off | `d26ae5b9` | `arm5-prefill-tile-default-off.patch` |
+| union of all five (inertness control only) | `780b0579` | - |
+
 The branch head is left at the ledger commit with **no** code change, so the PR
-diff is research-only and the advisor chooses which arm to draw.
+diff is research-only and the advisor chooses which arm to draw. The submitted
+surface at the head is byte-identical to base: `git diff cd047c00 HEAD --
+Vendor/ Sources/` is empty.
+
+Two further deviations, both deliberate:
+
+1. **Draw order changed.** The assignment listed the arms in the advisor's
+   sketch order; §5 reorders them so **arm 1 is drawn first**, because it is the
+   only arm whose predicted gain (-5.62 ms) exceeds the estimated resolution of
+   a single paired draw by more than 20x. Arm 4 is deliberately kept even though
+   it is predicted to *regress* (+1.44 ms): it is the only opposite-sign arm, so
+   it is the ladder's control against the wave model being a coincidence.
+2. **Arms 1 and 4 are mutually exclusive**, not stackable — they edit the same
+   `devc` block and arm 4 fails to apply on top of arm 1 (§7.1). The assignment
+   implied a stackable ladder; it is stackable only as 1+2+3.
