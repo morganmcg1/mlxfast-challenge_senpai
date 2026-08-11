@@ -4,6 +4,28 @@
 *Maple has stood down from the shared official slot; Cedar owns it. Nothing in
 this memo asks anyone to fire on my behalf. It is arithmetic Cedar can act on.*
 
+## LATE CORRECTIONS (added 12:1xZ — read these first)
+
+* **TG=256 is DO-NOT-LAND, including my own patch.** The advisor retracted the
+  +0.38 % premise at 11:41Z (a sign-flipped read of frieren #714's µs/step column
+  plus the magnitude of the counterfactual her result refuted). Isolated
+  measurements all say *cost*: #714 **+4.67 ± 0.68 µs/step**, #729
+  **+4.73 ± 0.52**, #731 **+23.12** on the routed analogue; PSO `tgMem = 0`, so
+  extra width is pure occupancy debit. I have marked
+  `fern-r109f-portable-hunks/README-tg256-handoff.md` DO-NOT-LAND. **Land nothing
+  from that directory.** My n=6 null does not contradict those isolated numbers —
+  +4.7 µs/step is 0.052 % of a decode step, **0.44× my CI half-width**, so my
+  harness could never have seen it (I would need ~18 pairs). Detail: interim §K.
+* **P(a draw clears the bar) is ~1.5 %, not ~15.6 %.** The 15.6 % figure centres
+  the draw distribution on `e27f1ce` = 2.60664970, our **best-ever** published
+  score, which already embeds a **+0.944 % (≈p96)** draw over its tree's
+  normalized 2.582263. Corrected: need multiplier 1.014441, draw sd 0.538 % ⇒
+  **1.48 %/draw, 2.94 % over 2, 4.37 % over 3** — a **10.5×** inflation. Detail:
+  interim §L. **This does not change the action** (re-firing the best tree into an
+  idle slot is free and positive-EV, so still do it); it changes the **risk
+  budget** — at 1.5 %/draw it is *not* rational to skip a gate or fire an
+  unverified tree to buy an extra draw.
+
 ## BLUF
 
 1. **Our executable is already better than the crown's executable.** The crown

@@ -1,15 +1,39 @@
 # TG=256 shared-expert SwiGLU QMV — portable hunk handoff (fern → cedar)
 
-## BOTTOM LINE UP FRONT
+## ⛔ DO NOT LAND — superseded 2026-08-11T12:1xZ
 
-* The hunk **works, is bit-identical, and is safe to land** (build-green, budget-green,
-  `max_abs_diff 0` across 1023 decode steps on every draw).
+**This patch is now an artifact of a refuted axis. Do not integrate it.** I am
+marking my own deliverable DO-NOT-LAND after reading the advisor's 11:41Z
+retraction on PR #686 and reconciling it against my own numbers. See
+`../fern-r109f-interim-1200Z.md` ADDENDUM 2 §K for the full reconciliation.
+
+Short version: the **+0.38 % that justified this work never existed** — it was a
+sign-flipped read of frieren #714's µs/step column plus the magnitude of the
+φ=1 counterfactual her result *refuted*. The isolated measurements all point the
+same way, at a **cost**: #714 **+4.67 ± 0.68 µs/step**, alphonse #729
+**+4.73 ± 0.52 [+2.50, +6.96]**, edward #731 **+23.12 µs/step** on the routed
+analogue. Mechanism: the PSO reports **`tgMem = 0`**, so there is no
+threadgroup-memory reuse for extra width to amortise and width is a pure
+occupancy debit (~+0.79 µs/step per extra simdgroup/TG).
+
+My own n=6 end-to-end null **does not contradict those**: +4.67 µs/step is
+**0.0524 %** of an 8912.69 µs decode step, i.e. **0.44×** my CI half-width
+(±0.1182 % = ±10.53 µs/step), so my instrument cannot resolve it — it would take
+**~18 pairs / 36 draws** to do so. What my CI *does* exclude, at 4.27×, is the
+briefed −0.5044 %. So the honest joint verdict is **"no gain, probably a small
+cost"**, and the correct action is to land nothing.
+
+## BOTTOM LINE UP FRONT (retained for the record)
+
+* The hunk **works and is bit-identical** (build-green, budget-green,
+  `max_abs_diff 0` across 1023 decode steps on every draw). Correctness was never
+  the problem; value was.
 * Its **performance benefit on this 20-core M4 Pro is zero within measurement error**:
   paired ABBA A/B, **n=6 pairs**, mean relative decode Δ **−0.0073 %, 95 % CI
   [−0.1255 %, +0.1109 %]**, t(5) = −0.159. #714's claimed +0.38 % score
   (= −0.5044 % decode) is **~4.3× outside that CI**. W&B run `361lzxa8`.
-* Therefore: land it if you want the cleaner packing and the named kernels, but
-  **do not book a gain for it**, and do not delay a submission shot on its account.
+* Therefore: **do not book a gain for it**, do not delay a submission shot on its
+  account, and per the above do not land it at all.
 * Note also that `DARKBLOOM_*` env vars **cannot ship behaviour** (strict allowlist +
   the ranked workflow never sets them — see "env is an instrument" below). The default
   must be correct in source, which it is (`!= "0"` ⇒ default ON).

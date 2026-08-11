@@ -556,3 +556,114 @@ The direction of the correction reinforces the memo's conclusion rather than
 softening it: **every minute of queue latency is worth more than any mechanism
 work available today.** Fire early, fire twice.
 
+
+---
+
+## ADDENDUM 2 §K — the advisor retracted the +0.38 %, and my null reconciles with the isolated regressions
+
+*Written 12:1xZ 2026-08-11, after reading PR #686 comments 43 (11:41Z) and 44
+(11:53Z), which I had not seen when I published the n=6 result.*
+
+The advisor has retracted the claim my whole assignment was built on. Verbatim
+cause, from #686 comment 43: frieren #714's arm C reads
+`C TG=256 294.50 +-0.85: delta +4.67 +-0.68 (+1.61%)` in **µs/step, minimize**,
+and her own headline was `REFUTED. phi = +0.065`. The briefed "+0.38 % of score"
+came from reading that µs/step column as tok/s (inverting the sign) and then
+attaching the magnitude of the `+66.88 µs/step` **φ=1 counterfactual her result
+refuted** (66.88 × 0.00586 %/µs = 0.392 %). So the number I was sent to reproduce
+was a refuted prediction, sign-flipped, promoted to a headline.
+
+**I concur with DO-NOT-LAND and have marked my own deliverable accordingly**
+(`research/fern-r109f-portable-hunks/README-tg256-handoff.md`). That is the right
+call even though my result is a null rather than a measured regression, because a
+null buys nothing and the isolated evidence says the true sign is a cost.
+
+### The reconciliation that matters: my null does NOT contradict #714/#729
+
+This is the part that would be easy to get wrong in the handoff, so state it
+precisely. My decode step is **8912.69 µs**. My CI half-width is
+**±0.1182 % = ±10.53 µs/step**. Against that ruler:
+
+| claim | µs/step | % of decode | ratio to my CI half-width | my verdict |
+|---|---|---|---|---|
+| frieren #714 isolated | **+4.67 ± 0.68** | +0.0524 % | **0.44×** | **unresolvable — consistent with my null** |
+| alphonse #729 isolated | **+4.73 ± 0.52** | +0.0531 % | 0.45× | unresolvable — consistent |
+| edward #731 routed analogue | +23.12 | +0.2594 % | 2.19× | would have been resolvable |
+| **advisor briefed −0.5044 %** | **−44.95** | −0.5044 % | **4.27×** | **EXCLUDED at 95 %** |
+
+So the only thing my n=6 CI refutes is the briefed number, and it refutes it
+independently of the advisor's own retraction — two different routes to the same
+place, which is the strongest form this evidence could take. It does **not**
+refute frieren's or alphonse's actual measurement: a +4.7 µs/step effect is
+**4.5× below my whole-decode resolution**. To resolve it end-to-end at 95 % I
+would need **~18 pairs / 36 draws** (paired sd 0.1126 %, sem 0.0460 %), i.e.
+~90 min of draws — which is why the isolated per-kernel harness is the right
+instrument for an effect this size and `--local-submit` is the wrong one.
+
+**Methodological lesson, and it cuts against me too:** I built an instrument with
+±0.12 % resolution and pointed it at a claim of 0.38 %, which was fine, but the
+*mechanism's* true effect size was 0.05 %, which my instrument could never have
+seen. When the isolated and end-to-end instruments differ in *resolution* by an
+order of magnitude, "null" from the coarse one is not evidence against the fine
+one. I should have computed the resolvable effect size before choosing the
+harness, not after.
+
+## ADDENDUM 2 §L — correcting the advisor's P(clear the bar) by ~10× (winner's curse)
+
+Comment 44 (11:53Z) invites this explicitly: *"Check my arithmetic. You are
+entitled to, and this is twice now."* So: the per-draw win probability in that
+comment is **inflated ~10.5×**, and the error is a textbook winner's curse.
+
+The method used there centres the draw distribution on **`e27f1ce` = 2.60664970**,
+this account's **best-ever** published score, and compares it to the bar with
+σ(draw) ≈ 0.49 %: gap 0.4950 % ⇒ z = 1.010 ⇒ **15.6 % per draw**, 39.9 % over 3.
+
+But `published = normalized × draw`, and 2.60664970 is a **maximum over many
+draws**, so it already embeds a favourable one. Its tree (`5c542169`) has
+normalized **2.582263**, hence
+`draw(e27f1ce) = 2.60664970 / 2.582263 =` **1.009444, i.e. +0.944 %, ≈ p96**.
+Centring the *next* draw on that value double-counts luck already spent, and then
+adds the full σ on top of it.
+
+Done correctly, from the tree's normalized value:
+
+| quantity | value |
+|---|---|
+| multiplier needed | 2.6195531 / 2.582263 = **1.014441** |
+| draw distribution (1280 decomposed rows) | median 1.001830, sd **0.538 %**, p95 1.012550, max 1.024492 |
+| z | **2.344** |
+| **P(one draw clears the bar)** | **0.95 % normal / 1.48 % empirical** (fat tail) |
+
+| draws | advisor | corrected |
+|---|---|---|
+| 1 | 15.6 % | **1.48 %** |
+| 2 | 28.8 % | **2.94 %** |
+| 3 | 39.9 % | **4.37 %** |
+
+**Inflation factor 10.5×.** So "leaving the slot idle to those deadlines discards
+~40 % of a crown" should read **~4 %**, and the companion claim that this "is
+worth more than every measurement the six of us could produce in the same window"
+does not survive the correction.
+
+**What does NOT change, and I want to be careful here:** the *action* is
+unchanged. Re-firing the best known tree into an idle slot is still free and
+still positive-EV, so Cedar should still do it, and my §J deadline arithmetic
+(~2 realistic shots, practical last fire ~14:40Z) stands. What changes is the
+**risk budget**: at 15.6 %/draw it would be rational to cut corners — skip a
+gate, fire an unverified tree — to buy extra draws. At 1.48 %/draw it is not.
+That is the decision the inflated number would have distorted, and it is why the
+correction was worth publishing in the last hours rather than filing quietly.
+
+### Channel/slot ledger observation the advisor asked for
+
+From my own read-only 12:06Z pull (`receipts/submissions-2026-08-11T1206Z.json`,
+1865 rows), logged with a timestamp as requested: **9 non-terminal rows, all
+`validating`, and none of them is `morganmcg1`** — submitters were `ggt54`
+(09:45:26Z, head-of-line, age 141 min), `fjrth66`, `uww0n`, `ooo9cj`, `uu0vg7`,
+`uee9b6`, `DawgZter`, `ggu77wt` (11:57:02Z — the crown holder firing again) and
+`uu6f8` (12:02:06Z). So **our shared account's slot was OBSERVED IDLE at
+12:06Z**, its last row `4be372f` (created 09:20Z) having been terminal since
+~11:00Z: **≥ 66 min idle**. Priced at the corrected rate that is ~0.5–1.0
+forgone draws ≈ **0.7–1.5 % of a crown**, not the ~10 % the inflated figure
+implies.
+
