@@ -1780,9 +1780,9 @@ private let lagunaSlidingBankAttentionKernel = MLXFast.metalKernel(
     ],
     outputNames: ["attended"],
     source: """
-const device bfloat* raw_queries = qkv_bank;
-const device bfloat* raw_keys = qkv_bank + 64 * 128;
-const device bfloat* raw_values = raw_keys + 8 * 128;
+const device bfloat* raw_queries=qkv_bank;
+const device bfloat* raw_keys=qkv_bank+64*128;
+const device bfloat* raw_values=raw_keys+8*128;
 """ + lagunaSlidingFusedAttentionSource,
     header: lagunaSlidingFusedAttentionHeader,
     ensureRowContiguous: true
@@ -2301,9 +2301,9 @@ private let lagunaFullBankAttentionKernel = MLXFast.metalKernel(
     ],
     outputNames: ["attended"],
     source: """
-const device bfloat* raw_queries = qkv_bank;
-const device bfloat* raw_keys = qkv_bank + 48 * 128;
-const device bfloat* raw_values = raw_keys + 8 * 128;
+const device bfloat* raw_queries=qkv_bank;
+const device bfloat* raw_keys=qkv_bank+48*128;
+const device bfloat* raw_values=raw_keys+8*128;
 """ + lagunaFullFusedAttentionSource,
     header: lagunaFullFusedAttentionHeader,
     ensureRowContiguous: true
@@ -2312,19 +2312,17 @@ const device bfloat* raw_values = raw_keys + 8 * 128;
 private func lagunaBankAttention(
     _ bank: MLXArray, _ qw: MLXArray, _ kw: MLXArray, _ angles: MLXArray,
     _ ck: MLXArray, _ cv: MLXArray, _ index: Int, _ scale: MLXArray,
-    _ sliding: Bool
+    _ sliding: Bool, _ trace: Bool = true
 ) -> MLXArray {
-    let heads = sliding
-        ? LagunaConstants.slidingAttentionHeads
+    let heads = sliding ? LagunaConstants.slidingAttentionHeads
         : LagunaConstants.fullAttentionHeads
-    lagunaTrace(sliding
-        ? "sliding fused attention qkv bank"
-        : "full fused attention qkv bank")
-    let params = sliding
-        ? lagunaRingIdxAtlas[index]
+    if trace {
+        lagunaTrace(sliding ? "sliding fused attention qkv bank"
+            : "full fused attention qkv bank")
+    }
+    let params = sliding ? lagunaRingIdxAtlas[index]
         : MLXArray([UInt32(index), UInt32(index + 1), UInt32(ck.dim(2))])
-    let kernel = sliding
-        ? lagunaSlidingBankAttentionKernel
+    let kernel = sliding ? lagunaSlidingBankAttentionKernel
         : lagunaFullBankAttentionKernel
     return kernel(
         [bank, qw, kw, angles, ck, cv, params, scale],
@@ -2387,10 +2385,7 @@ func lagunaFullFusedAttention(
     )[0]
 }
 
-/// Force creation of `lagunaFullFusedAttentionKernel`'s pipeline state with
-/// production Q/K/V geometry and a minimal two-row cache. Every tensor is
-/// deterministic, input-independent, evaluated once, and released before the
-/// constructor clears transient allocator cache and wires resident weights.
+/// Warm full fused-attention pipeline states before scored inference.
 func lagunaWarmFullFusedAttentionKernel() {
     let headDim = LagunaConstants.headDim
     let heads = LagunaConstants.fullAttentionHeads
@@ -2401,6 +2396,9 @@ func lagunaWarmFullFusedAttentionKernel() {
         [1, 1, kvHeads * headDim], dtype: .bfloat16)
     let rawValues = MLXArray.zeros(
         [1, 1, kvHeads * headDim], dtype: .bfloat16)
+    let bank = MLXArray.zeros(
+        [1, 1, heads * headDim + 2 * kvHeads * headDim + heads],
+        dtype: .bfloat16)
     let queryWeight = MLXArray.ones([headDim], dtype: .bfloat16)
     let keyWeight = MLXArray.ones([headDim], dtype: .bfloat16)
     let angles = MLXArray.zeros(
@@ -2422,6 +2420,9 @@ func lagunaWarmFullFusedAttentionKernel() {
         writeIdx: 1,
         scale: scale
     ))
+    eval(lagunaBankAttention(
+        bank, queryWeight, keyWeight, angles,
+        cacheKeys, cacheValues, 1, scale, false, false))
 }
 
 /// Multi-token sliding-layer Q/K RMSNorm + plain RoPE fusion. One dispatch
