@@ -729,13 +729,89 @@ available by accident.
 
 ## 9. Correctness
 
-<!-- FILL: run_upstream_equivalence.sh, EQUIVALENCE_EXACT_STEPS=8, non-zero test count -->
+Command, run on the joint append arm — the most aggressive state in the binary,
+so it dominates arms F, H, R and the control:
 
-Rule 105.15: a zero-test invocation is not a pass; the selected-test count is
-reported explicitly.
+```
+env DARKBLOOM_GRID_APPEND=23 research/run_upstream_equivalence.sh
+```
 
-The prefill `0.125 / 0.011933609 / 5991==5991` triple under `EQUIVALENCE_EXIT=1`
-is a **documented pre-existing M4 artifact** and is cited, not re-derived.
+The wrapper takes no arguments. It exports
+`MLXFAST_RUN_LAGUNA_UPSTREAM_EQUIVALENCE=1` and the weights path itself, filters
+on the bare test name `lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled`,
+repairs the debug metallib from
+`.build-worker/arm64-apple-macosx/release/mlx.metallib`, and refuses to call a
+zero-test invocation a pass. `EQUIVALENCE_EXACT_STEPS` is an **output** of the
+wrapper, not an input.
+
+Result (2026-08-11 07:22Z, build complete in 27.85 s, test body 42.05 s):
+
+```
+EQUIVALENCE_EXACT_STEPS=8
+EQUIVALENCE_EXIT=1
+```
+
+**Rule 105.15 — non-zero test count.** The wrapper's own guard is the presence
+of `"promptTokenCount"` in the emitted report, and it is present with the value
+`512`. The swift-testing summary line independently confirms a real selection:
+`Test run with 1 test in 0 suites failed after 42.051 seconds with 1 issue`. The
+`Executed 0 tests` line above it belongs to the empty XCTest suite — the
+equivalence case is a swift-testing `@Test`, so XCTest legitimately selects
+nothing — and is not the zero-test condition the rule is about. One test was
+selected, compiled, and executed.
+
+**Decode is bit-exact.** All eight teacher-forced decode steps report
+
+| label | max abs logit error | mean abs logit error | runtimeToken | upstreamToken |
+| --- | --- | --- | --- | --- |
+| decode-0 | 0 | 0 | 509 | 509 |
+| decode-1 | 0 | 0 | 902 | 902 |
+| decode-2 | 0 | 0 | 5991 | 5991 |
+| decode-3 | 0 | 0 | 509 | 509 |
+| decode-4 | 0 | 0 | 902 | 902 |
+| decode-5 | 0 | 0 | 5991 | 5991 |
+| decode-6 | 0 | 0 | 509 | 509 |
+| decode-7 | 0 | 0 | 902 | 902 |
+
+`maximumAbsoluteLogitError = 0` is *identity*, not "within tolerance": with both
+guests appended, every decode logit is bit-identical to the vendored upstream
+oracle, and every greedy token matches. That is the correctness claim this round
+needs, because both fused kernels are decode-only (§0, `dims(1, 1, ·)` guards at
+`:8386` and `:5136`).
+
+**The single recorded issue is the prefill row.** The assertion that fails is
+`report.passes(maximumAbsoluteLogitError: tolerance → 0.0)` at
+`LagunaCorrectnessTests.swift:249`, and the only step with a non-zero error is
+
+```
+prefill: maximumAbsoluteLogitError 0.125,
+         meanAbsoluteLogitError    0.011933609,
+         runtimeToken 5991 == upstreamToken 5991
+```
+
+This is the exact `0.125 / 0.011933609 / 5991==5991` triple under
+`EQUIVALENCE_EXIT=1` that the evidence contract names as a **documented
+pre-existing M4 artifact**. Per that instruction it is cited, not re-derived: I
+did not run the unchanged base to reproduce it, and I make no claim about its
+cause here.
+
+Two facts make it safe to attribute the failure entirely to the artifact rather
+than to this round's change:
+
+1. **The changed code cannot run at prefill.** Both fused kernels are gated on
+   `dims(1, 1, hiddenSize)`; the equivalence harness prefills 512 tokens
+   (`promptTokenCount: 512`), so both guards decline and the executed prefill
+   path is byte-identical to the control. A change that does not execute cannot
+   move a prefill logit.
+2. **The argmax is unaffected anyway.** `runtimeToken == upstreamToken` on the
+   prefill row, so even the artifact does not change the emitted token.
+
+**What this does and does not license.** It licenses the negative verdict: arm G
+is rejected on cost (§0, §7, §8), not on correctness, so no one needs to wonder
+whether the `+13.6 / +27.0 µs/step` was bought with a numerical shortcut. It
+does **not** license shipping the append path by default on the strength of an
+M4 `EQUIVALENCE_EXIT=1`; §9a flips the default to the control regardless, and
+the M5 remains authoritative for any near-tie divergence.
 
 ## 9a. Shipped default flip
 

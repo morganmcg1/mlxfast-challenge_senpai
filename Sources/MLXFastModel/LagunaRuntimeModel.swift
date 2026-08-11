@@ -8238,7 +8238,7 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
 /// guest's result, so the standalone tournament dispatch stays live and the
 /// `"5"` minus `"3"` difference isolates that dispatch chain's wall cost.
 let lagunaGridAppendMode =
-    ProcessInfo.processInfo.environment["DARKBLOOM_GRID_APPEND"] ?? "23"
+    ProcessInfo.processInfo.environment["DARKBLOOM_GRID_APPEND"] ?? "0"
 let lagunaGridAppendSharedEnabled = lagunaGridAppendMode.contains("2")
 let lagunaGridAppendRouterDiscardEnabled = lagunaGridAppendMode.contains("5")
 let lagunaGridAppendRouterEnabled =
