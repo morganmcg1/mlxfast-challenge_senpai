@@ -1421,15 +1421,7 @@ func lagunaSlidingQKNormRoPE(
 let lagunaFusedSlidingAttentionEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_SLIDING_ATTN"] != "0"
 
-private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
-    name: "laguna_sliding_fused_attn_ring_v1",
-    inputNames: [
-        "raw_queries", "raw_keys", "raw_values",
-        "query_weight", "key_weight", "angles",
-        "k_cache", "v_cache", "params", "scale_arr",
-    ],
-    outputNames: ["attended"],
-    source: """
+private let lagunaSlidingFusedAttentionSource = """
 constexpr uint head_dim = 128;
 constexpr uint window = 512;
 constexpr uint gqa = 8;
@@ -1715,8 +1707,9 @@ if (lane == 0) {
         pair_out1[p] = static_cast<bfloat>(pair_o1[p]);
     }
 }
-""",
-    header: """
+"""
+
+private let lagunaSlidingFusedAttentionHeader = """
 #define LAGUNA_RESCALE(dst, delta_expr)         \\
   do {                                          \\
     const float db_delta_ = (delta_expr);       \\
@@ -1764,7 +1757,34 @@ if (lane == 0) {
   } while (false)
 
 
-""",
+"""
+
+private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
+    name: "laguna_sliding_fused_attn_ring_v1",
+    inputNames: [
+        "raw_queries", "raw_keys", "raw_values",
+        "query_weight", "key_weight", "angles",
+        "k_cache", "v_cache", "params", "scale_arr",
+    ],
+    outputNames: ["attended"],
+    source: lagunaSlidingFusedAttentionSource,
+    header: lagunaSlidingFusedAttentionHeader,
+    ensureRowContiguous: true
+)
+
+private let lagunaSlidingBankAttentionKernel = MLXFast.metalKernel(
+    name: "laguna_sliding_bank_attn_ring_v1",
+    inputNames: [
+        "qkv_bank", "query_weight", "key_weight", "angles",
+        "k_cache", "v_cache", "params", "scale_arr",
+    ],
+    outputNames: ["attended"],
+    source: """
+const device bfloat* raw_queries = qkv_bank;
+const device bfloat* raw_keys = qkv_bank + 64 * 128;
+const device bfloat* raw_values = raw_keys + 8 * 128;
+""" + lagunaSlidingFusedAttentionSource,
+    header: lagunaSlidingFusedAttentionHeader,
     ensureRowContiguous: true
 )
 
@@ -1870,15 +1890,7 @@ let lagunaFusedFullAttentionKernelWarmupEnabled =
     ProcessInfo.processInfo.environment[
         "DARKBLOOM_FUSED_FULL_ATTN_KERNEL_WARMUP"] != "0"
 
-private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
-    name: "laguna_full_fused_attn_grow_v1",
-    inputNames: [
-        "raw_queries", "raw_keys", "raw_values",
-        "query_weight", "key_weight", "angles",
-        "k_cache", "v_cache", "params", "scale_arr",
-    ],
-    outputNames: ["attended"],
-    source: """
+private let lagunaFullFusedAttentionSource = """
 constexpr uint head_dim = 128;
 constexpr uint gqa = 6;
 constexpr int BN = 32;
@@ -2216,8 +2228,9 @@ if (lane == 0) {
         pair_out1[p] = static_cast<bfloat>(pair_o1[p]);
     }
 }
-""",
-    header: """
+"""
+
+private let lagunaFullFusedAttentionHeader = """
 #define LAGUNA_RESCALE(dst, delta_expr)         \\
   do {                                          \\
     const float db_delta_ = (delta_expr);       \\
@@ -2265,9 +2278,61 @@ if (lane == 0) {
   } while (false)
 
 
-""",
+"""
+
+private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
+    name: "laguna_full_fused_attn_grow_v1",
+    inputNames: [
+        "raw_queries", "raw_keys", "raw_values",
+        "query_weight", "key_weight", "angles",
+        "k_cache", "v_cache", "params", "scale_arr",
+    ],
+    outputNames: ["attended"],
+    source: lagunaFullFusedAttentionSource,
+    header: lagunaFullFusedAttentionHeader,
     ensureRowContiguous: true
 )
+
+private let lagunaFullBankAttentionKernel = MLXFast.metalKernel(
+    name: "laguna_full_bank_attn_grow_v1",
+    inputNames: [
+        "qkv_bank", "query_weight", "key_weight", "angles",
+        "k_cache", "v_cache", "params", "scale_arr",
+    ],
+    outputNames: ["attended"],
+    source: """
+const device bfloat* raw_queries = qkv_bank;
+const device bfloat* raw_keys = qkv_bank + 48 * 128;
+const device bfloat* raw_values = raw_keys + 8 * 128;
+""" + lagunaFullFusedAttentionSource,
+    header: lagunaFullFusedAttentionHeader,
+    ensureRowContiguous: true
+)
+
+private func lagunaBankAttention(
+    _ bank: MLXArray, _ qw: MLXArray, _ kw: MLXArray, _ angles: MLXArray,
+    _ ck: MLXArray, _ cv: MLXArray, _ index: Int, _ scale: MLXArray,
+    _ sliding: Bool
+) -> MLXArray {
+    let heads = sliding
+        ? LagunaConstants.slidingAttentionHeads
+        : LagunaConstants.fullAttentionHeads
+    lagunaTrace(sliding
+        ? "sliding fused attention qkv bank"
+        : "full fused attention qkv bank")
+    let params = sliding
+        ? lagunaRingIdxAtlas[index]
+        : MLXArray([UInt32(index), UInt32(index + 1), UInt32(ck.dim(2))])
+    let kernel = sliding
+        ? lagunaSlidingBankAttentionKernel
+        : lagunaFullBankAttentionKernel
+    return kernel(
+        [bank, qw, kw, angles, ck, cv, params, scale],
+        grid: ((heads / 2) * 1024, 1, 1), threadGroup: (1024, 1, 1),
+        outputShapes: [[1, heads, 1, LagunaConstants.headDim]],
+        outputDTypes: [.bfloat16]
+    )[0]
+}
 
 /// Fused decode attention for a full-attention layer with spare backing
 /// capacity. Returns `[1, heads, 1, headDim]`; the caller advances the
@@ -5756,6 +5821,8 @@ final class LagunaRuntimeAttention: Module {
                 queries: MLXArray, keys: MLXArray, values: MLXArray,
                 gateValues: MLXArray, gateActivated: Bool
             )?
+        var qkvBank:
+            (bank: MLXArray, gateValues: MLXArray, gateActivated: Bool)?
         if lagunaFusedQKVProjectionEnabled, _fusedQKVWeight == nil,
             B == 1, L == 1,
             headDim == LagunaConstants.headDim,
@@ -5894,13 +5961,25 @@ final class LagunaRuntimeAttention: Module {
                     gateProjectionActivated || deferGateActivation
                     ? gateLogits
                     : softplus(gateLogits.asType(.float32)).asType(.bfloat16)
-                fusedNormQKV = (
-                    qkv[.ellipsis, 0 ..< queryDim],
-                    qkv[.ellipsis, queryDim ..< (queryDim + kvDim)],
-                    qkv[.ellipsis, (queryDim + kvDim) ..< gateStart],
-                    gateValues,
-                    gateProjectionActivated || !deferGateActivation
-                )
+                if _nativeAffineQKVGateRows == nHeads,
+                    qkv.dtype == .bfloat16,
+                    qkv.dims(1, 1, gateStart + nHeads),
+                    qNorm.weight.dtype == .bfloat16,
+                    kNorm.weight.dtype == .bfloat16,
+                    qNorm.weight.dims(headDim), kNorm.weight.dims(headDim)
+                {
+                    qkvBank = (
+                        qkv, gateValues,
+                        gateProjectionActivated || !deferGateActivation)
+                } else {
+                    fusedNormQKV = (
+                        qkv[.ellipsis, 0 ..< queryDim],
+                        qkv[.ellipsis, queryDim ..< (queryDim + kvDim)],
+                        qkv[.ellipsis, (queryDim + kvDim) ..< gateStart],
+                        gateValues,
+                        gateProjectionActivated || !deferGateActivation
+                    )
+                }
             } else {
                 fusedNormQKV = lagunaFusedNormQKVProjection(
                     residual: input,
@@ -5913,13 +5992,44 @@ final class LagunaRuntimeAttention: Module {
                 )
             }
         }
-        // The fused result already contains every consumer of the normalized
-        // row. Materialize that row only for the stock projections or the
-        // retained row-concatenated QKV bank. Checking actual bank presence
-        // above (rather than its environment flag) preserves the custom
-        // fallback if fused-weight preparation declined.
         let normalizedInput: MLXArray? =
-            fusedNormQKV == nil ? inputNorm(input) : nil
+            fusedNormQKV == nil && qkvBank == nil
+            ? inputNorm(input) : nil
+
+        var fusedAttended: MLXArray?
+        if let bank = qkvBank?.bank {
+            if lagunaFusedSlidingAttentionEnabled,
+                lagunaFusedSlidingQKNormRoPEEnabled,
+                isSliding,
+                nHeads == LagunaConstants.slidingAttentionHeads,
+                let angles = qkRoPEAngles,
+                angles.dtype == .float32,
+                angles.dims(1, 1, 1, headDim),
+                let rotating = cache as? RotatingKVCache,
+                rotating.maxSize == LagunaConstants.slidingWindow,
+                let ring = rotating.fusedRingPrepare()
+            {
+                fusedAttended = lagunaBankAttention(
+                    bank, qNorm.weight, kNorm.weight, angles,
+                    ring.keys, ring.values, ring.writeIdx, _fusedAttnScale, true)
+                rotating.fusedRingAdvance()
+            } else if lagunaFusedFullAttentionEnabled,
+                lagunaFusedFullQKNormYaRNEnabled,
+                !isSliding,
+                nHeads == LagunaConstants.fullAttentionHeads,
+                let angles = qkRoPEAngles,
+                angles.dtype == .float32,
+                angles.dims(1, 1, 1, headDim / 2),
+                let simple = cache as? KVCacheSimple,
+                let append = simple.fusedAppendPrepare()
+            {
+                fusedAttended = lagunaBankAttention(
+                    bank, qNorm.weight, kNorm.weight, angles,
+                    append.keys, append.values, append.writeIdx,
+                    _fusedAttnScale, false)
+                simple.fusedAppendAdvance()
+            }
+        }
 
         var queries: MLXArray
         var keys: MLXArray
@@ -5948,6 +6058,19 @@ final class LagunaRuntimeAttention: Module {
             queries = fused.queries
             keys = fused.keys
             values = fused.values
+        } else if let fused = qkvBank {
+            if fusedAttended != nil {
+                queries = fused.bank
+                keys = fused.bank
+                values = fused.bank
+            } else {
+                let queryDim = nHeads * headDim
+                let kvDim = nKVHeads * headDim
+                queries = fused.bank[.ellipsis, 0 ..< queryDim]
+                keys = fused.bank[.ellipsis, queryDim ..< (queryDim + kvDim)]
+                values = fused.bank[
+                    .ellipsis, (queryDim + kvDim) ..< (queryDim + 2 * kvDim)]
+            }
         } else {
             guard let normalizedInput else {
                 preconditionFailure("stock QKV projections require normalized input")
@@ -6011,8 +6134,9 @@ final class LagunaRuntimeAttention: Module {
             qkRoPEAngles?.dims(1, 1, lagunaRoPEAngleAtlasLength, headDim / 2) == true
 
         var qkNormRoPEFused = false
-        var fusedAttended: MLXArray?
-        if lagunaFusedSlidingAttentionEnabled,
+        if fusedAttended != nil {
+            qkNormRoPEFused = true
+        } else if lagunaFusedSlidingAttentionEnabled,
             useFusedSlidingQKNormRoPE,
             let fusedAngles = qkRoPEAngles,
             values.dtype == .bfloat16,
@@ -6162,6 +6286,9 @@ final class LagunaRuntimeAttention: Module {
             if let fusedNormQKV {
                 projectedGate = fusedNormQKV.gateValues
                 gateIsActivated = fusedNormQKV.gateActivated
+            } else if let qkvBank {
+                projectedGate = qkvBank.gateValues
+                gateIsActivated = qkvBank.gateActivated
             } else {
                 guard let normalizedInput else {
                     preconditionFailure("attention gate requires normalized input")
