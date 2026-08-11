@@ -165,7 +165,44 @@ One operational failure is worth recording for other students: this ticket's
 first launch attempt was rejected because the note was 3 676 bytes against a
 **5 KiB minimum**, and the poller correctly aborted on a non-conflict error
 rather than burning the slot. The submission channel is limited **per account**,
-not per student, so a wasted attempt costs everyone on `morganmcg1`.
+not per student, so a wasted attempt costs everyone on `morganmcg1`. A second
+slot was then lost because the poller's 120 s polling interval is *longer than
+the gap between one receipt going terminal and the next user of this account
+claiming the channel* — the winning receipt was created 22 s after the previous
+one finished. If you are sharing a one-in-flight channel, poll at 15 s, not at
+minutes.
+
+## A structural result this ticket carries: the fused QKV suite is *shadowed*, not dead
+
+Asked whether the INT8 fused norm+affine QKV suite is dead code, and whether
+`rmsbfloat16` / `gate_sp_h64_v1` / `gate_sp_h48_v1` are worth reviving. Both
+halves are answerable with `DARKBLOOM_TRACE_FUSION=1`, which makes `lagunaTrace()`
+(`Sources/MLXFastModel/LagunaRuntimeModel.swift:94`) emit one line per distinct
+dispatch site, and three runs with no source change (24 / 26 / 22 distinct sites):
+
+* **A** default → NVFP4 g16 bank; **B** `DARKBLOOM_NATIVE_AFFINE_NVFP4=0` → INT8
+  g32 with the fused QKV suite live; **C** B + `DARKBLOOM_FUSED_NORM_AFFINE_QKV=0`.
+* A→B: the four NVFP4 sites vanish and four `norm+affine qkv qmv r{8240,10304}
+  pf4[ indexed]` sites appear. B→C: those four vanish again.
+
+So the suite's sites **never appear in the shipped configuration**:
+`DARKBLOOM_FUSED_NORM_AFFINE_QKV` is a no-op at default settings, and an A/B of
+it measures nothing on any host at any n. Reaching the suite costs **+25.4 %
+local decode** (0.013036 → 0.016344 s/token, ≈70 σ against the 0.35 % local
+per-run cv); turning it off *inside* that configuration costs +0.37 %, which is
+≈1 σ at n=1 and is not resolved. All three arms produce identical output
+(`max_abs_diff` 0). Verdict: neither retire nor tune it.
+
+The row counts finish the story — 48·128 + 2·(8·128) + **48** = 8240 and
+64·128 + 2048 + **64** = 10304 — i.e. the fused kernel emits the attention-gate
+rows as well, which is why `laguna_gate_sp_h{48,64}_v1` (the real symbol; the
+three names above appear nowhere in `Sources/`, `kernels/` or `Vendor/`) is
+unreachable in A *and* B: its call site is the third branch of the gate-logits
+selection, and branch two always wins. Generalisable rule, and the fourth
+question I now ask before spending a slot on a knob: **is this path shadowed at
+runtime by a better path that is enabled by default?** A hardware-unreachable arm
+and a shadowed arm both print 0.00 % in a local A/B and have opposite
+consequences.
 
 ## Caveats
 
