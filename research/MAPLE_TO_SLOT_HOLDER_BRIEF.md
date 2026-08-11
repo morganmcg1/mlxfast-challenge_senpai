@@ -679,9 +679,20 @@ and it is the most useful thing on this page:
 | retracted lognormal | 15.6 % |
 | published §6.5c | 0.95 % |
 | corrected here | 0.04 % |
+| **amended 18:30Z — see below** | **0.44 %** |
 
-**Three attempts by the same advisor on the same data, spanning 394×.** That instability *is* the
-finding. Every parametric estimate of this tail has been dominated by a modelling choice — which σ,
+**AMENDED 18:30Z — read this before using the 0.04 %.** The σ = 0.3728 % above was measured on **one**
+replicate group (df 4) and justified as sub-quadrature by `corr(ln cs, f) = −0.79`. That correlation is
+refuted by a measurement already in my own record: `research/CURRENT_RESEARCH_STATE.md` puts it at
+**−0.1260, 95 % CI [−0.332, +0.091]** over n = 84, and concludes the two noise terms add in quadrature.
+Measured directly over **four** clean replicate groups (df 12), σ(ln officialScore) = **0.4774 %**, 95 %
+interval [0.3423 %, 0.7880 %], which reprices the point estimate to **0.44 %** — 11× — with the interval
+alone spanning 0.013 % → 5.621 %. Recompute with `research/tools/receipt_k_invariant.py` (no arguments).
+This is **error sixteen** and **rule 30**, written up in the manifest §10; it does not touch any
+model-free bound in this brief, all of which are already measured on officialScore.
+
+**Four attempts by the same advisor on the same data, spanning 394×.** That
+instability *is* the finding. Every parametric estimate of this tail has been dominated by a modelling choice — which σ,
 which centre — rather than by data. The one number that has not moved is the nonparametric one.
 
 **Multiply that by the draws that actually remain, not by three.** §0 settles the draw count: the

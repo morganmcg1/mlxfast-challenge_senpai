@@ -2575,6 +2575,109 @@ cite an artifact that lives outside your published branch, vendor a verbatim cop
 branch, commit and checksum — or say plainly that the reader must fetch it and give the command. Error
 11 documented the hole honestly and left the work undone; documenting a gap is not closing it.
 
+### (xviii) 18:30Z: the operator's winning-path bulletin, absorbed — and **error sixteen**, a σ whose justification contradicted my own better measurement
+
+**A. What arrived, and why it produced a document instead of an assignment.** An `operator_nudge`
+(`human-direction:winning-path-deconflict:maple:20260811-v1`) delivered an evidence bulletin and
+explicitly left ordering autonomy with me. It is not a human-authored GitHub Issue, so the
+issue-response path does not apply; there is no open Maple pull request, so no assignment or feedback
+tool is invocable. The only correct disposal is the one taken here: absorb it as a durable handoff
+record. Its content, for whoever inherits:
+
+* **Do not duplicate the sibling campaign.** That campaign owns the e27 / shared-R1 family. Its
+  authoritative M5 receipt `5fae2f13-577e-462d-afce-60a97d25bba6` passed every gate — 1344/1344
+  correctness, GPQA 9/9, TTFT 9/9, latency floors, memory — at decode **4.914778 ms/token**, prefill
+  **188.321 µs/token**, score **2.575215**. Shared-R1 is a minimal sibling-SIMDgroup broadcast
+  (`threadgroup uint shared_top8_winner[1]` plus a barrier). A Maple lane must not be spent on
+  shared-R1-only fallback, row-32, the T5 carrier, the PC1/PC2 attention sidecars, or no-copy sorted-X.
+* **The ranked-NAX depth-1 register prefetch is closed** — tested, prefill 97.525 → 98.2092 ms
+  (+0.684 ms), reverted.
+* The NAX gather selector already adapts on ≈ `M/E > 48 → bm64/wm2`, `> 24 → bm32/wm1`, else
+  `bm16/wm1`.
+* The closest non-duplicative current-base test would have been the skinny-SM16 arm at `9791d02b`;
+  it is M5-only and unadjudicable on the M4 dev box.
+* The grid-append family is closed on three independent negatives.
+
+**Four of those five items were already in this record, independently derived, and none of the five
+contradicts it.** That is the most useful thing the bulletin does: it is an external check on the
+handoff, and the handoff passed. It changes nothing operational — the challenge is closed and every
+Maple pull request is closed, so nothing in it is actionable. The stopping rule in §10(xvii) governs
+*re-logging stale event traffic*; this entry is new scientific content derived from the bulletin's
+numbers, which is a different thing, and it does not reopen that rule.
+
+**B. The audit constant — a reproduction, said plainly.** With the candidate's own legs in
+microseconds, `cs · D^0.75 · P^0.25` is a constant **K = 5610.206892**, float-exact (worst relative
+residual **4.4e-16**) across all 69 receipts in `research/artifacts/advisor-r103/replicate-sigma.json`
+that carry all three fields, spanning 65 % of the observed `cs` range and five days of sessions. This
+is **not new**: it is the identity already reconstructed at n = 84 in
+`research/CURRENT_RESEARCH_STATE.md`, with `K = MB_D^0.75 · MB_P^0.25` — the fixed reference legs
+`MB_D = 0.013855009542`, `MB_P = 0.000372473193` — and my fitted K matches that product to
+**5.2e-11**. What is new is only the portable form: one constant, two of the candidate's own numbers,
+no API call and no baseline needed to check a receipt. It has already earned that keep — it proves the
+draw table in `research/maple-frieren-r106e-amendment3.md` is headed "base decode / base prefill" but
+holds **candidate** legs. The identity also converts a statistical claim into a structural one: `cs`
+is a function of the candidate's legs *alone*, so **any σ measured on `cs` is a lower rail by
+construction**, not by estimate.
+
+**C. The bulletin receipt, priced.** K supplies the number the bulletin did not publish: implied
+**cs = 2.580039**, hence session factor **f = −0.1871 %** — an unlucky baseline arm, not a slow
+candidate; 0.187 % is 0.72 ms of prefill or 12.2 µs/step of ranked decode at this record's currency.
+Against the five identical-program ranked nulls (group `dc437b0e`, mean cs 2.583106, sd 0.2276 %) it
+sits at **z = −0.52σ**; under the alternative reading that its published score *is* a candidate score,
+z = −1.34σ. **Either way it is statistically indistinguishable from a null draw of that program.** Its
+officialScore is 1.7071 % (log units) below the bar. Two honest caveats. First, cross-program
+comparisons in officialScore units are baseline-contaminated — the observed session factor spans
+−0.911 % to +1.296 % — so this is a hypothesis generator, not a verdict, exactly as §0f requires.
+Second, if the three published numbers came from two different measurement payloads, exactly one of
+them must move to restore K (score 2.580039, or decode 4927.057 µs/step, or prefill 189.736 µs/tok);
+which one cannot be settled from here, and the tool prints that alternative rather than hiding it.
+
+**D. Error sixteen — two of my own documents disagreed and I published the weaker one.**
+`research/CURRENT_RESEARCH_STATE.md` measures, over n = 84, `corr(ln cs, f) = −0.1260` with 95 % CI
+`[−0.332, +0.091]`, concludes "the two noise sources add in quadrature; nothing cancels", and reports
+sd(f) 0.5352 % against identical-code sd(ln cs) 0.2494 % — an implied decision-axis σ of **0.5905 %**.
+The brief's corrected draw-odds section instead publishes **σ = 0.3728 %**, measured on a *single*
+replicate group (df 4), and justifies its being *below* quadrature by `corr = −0.79` — a value the
+n = 84 confidence interval excludes. I let a correlation estimated from five points override one
+estimated from eighty-four, in my own record, without reconciling them, and the headline
+`P(one draw ≥ bar) ≈ 0.04 %` inherits that choice.
+
+Measured directly this turn over the **four** clean identical-program groups (df 12; the fifth group
+is printed, not hidden, and excluded on a stated criterion — one draw at 222.37 µs/tok prefill against
+192.8–206.5 for its siblings, a 15.3 % span where every other group spans ≤ 1.3 %):
+
+| quantity | pooled, df 12 |
+|---|---|
+| sd(ln `cs`) — candidate term only | **0.1969 %** |
+| sd(session factor f) — baseline arm | **0.5286 %** |
+| **sd(ln officialScore) — the axis acceptance reads** | **0.4774 %**, 95 % interval [0.3423 %, 0.7880 %] |
+| corr(ln `cs`, f) | **−0.434** (n = 16), vs −0.126 at n = 84 and −0.79 at n = 5 |
+
+Repriced on the same centre and the same required move (+1.2509 % in log units): **P = 0.439 %**, an
+**11×** increase on the published 0.040 %, with the σ-interval alone spanning 0.013 % → 5.621 %.
+The axis lesson also no longer needs the correlation argument at all: **sd(ln officialScore) exceeds
+sd(ln `cs`) in 5 of 5 groups** (one-sided sign test p = 0.031). Within the candidate term, the decode
+leg carries almost all of it — 0.1804 % of the 0.1969 % — because the 0.75 exponent outweighs
+prefill's larger relative scatter (sd ln P 0.3111 % vs sd ln D 0.2405 %); size submission-side tests
+accordingly.
+
+**What does not move, and this matters more than the correction.** Every model-free bound in this
+handoff — 0/107 ⇒ ≤2.76 %, 0/159 ⇒ ≤1.87 %, the era ceiling, the chained ≤1.50 % — is measured on
+officialScore already and is untouched. The brief's own meta-conclusion is *strengthened*: this is the
+fourth parametric attempt at the same tail by the same advisor on the same data, and it moved another
+order of magnitude. **The instability is the finding. Carry the model-free bound.**
+
+**Rule 30, added now** (§8): **when two documents you wrote disagree about a parameter, the one with
+more degrees of freedom wins until you can name the mechanism that beats it — and never publish a σ
+whose justification contradicts a measurement already in your own record.** A correlation from five
+points cannot overturn one from eighty-four; if it appears to, you have found an error in your reading,
+not an effect in the machine.
+
+**Instrument.** `research/tools/receipt_k_invariant.py` — no arguments, read-only, touches no channel.
+It verifies K against both the receipts and the documented reference legs, prints the two-axis noise
+table with the outlier group visible, reprices the tail across every σ that has been published for it,
+and derives the bulletin receipt's missing number.
+
 ---
 
 _Written by meridian, an AI agent acting as the Maple campaign research advisor._

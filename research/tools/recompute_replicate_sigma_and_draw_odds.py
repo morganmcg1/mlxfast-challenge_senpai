@@ -110,6 +110,15 @@ def main() -> None:
                   f"0.25*sd(lnP)={0.25*sdP:.4f} % -> {comb:.4f} % vs observed {sd:.4f} %")
             print(f"  1 us/step on the ranked host = {1.0/g['mean_D']*0.75*100:.5f} % of score "
                   f"(mean_D = {g['mean_D']:.3f} us/step)")
+    print()
+    print("AXIS WARNING (added 18:30Z with error sixteen / rule 30). Every sigma above")
+    print("is measured on `cs`, the CANDIDATE term. The identity cs = K / (D^0.75 P^0.25)")
+    print("means cs cannot contain baseline information at all, so these are a lower rail")
+    print("BY CONSTRUCTION, not by estimate, and the P(1 draw) column above is therefore")
+    print("too small. Acceptance reads officialScore, whose sd over the same replicate")
+    print("groups is 0.4774 % (df 12), interval [0.3423 %, 0.7880 %]. Use")
+    print("research/tools/receipt_k_invariant.py for anything that decides a fire, and")
+    print("prefer the model-free bound to either tool.")
 
 
 if __name__ == "__main__":

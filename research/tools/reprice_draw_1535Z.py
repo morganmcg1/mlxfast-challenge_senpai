@@ -119,16 +119,26 @@ print("  i.e. flattering, not conservative.")
 
 print()
 print("=" * 78)
-print("HOW MUCH HAS THE POINT ESTIMATE MOVED ACROSS THREE ATTEMPTS?")
+print("HOW MUCH HAS THE POINT ESTIMATE MOVED ACROSS FOUR ATTEMPTS?")
 print("=" * 78)
 attempts = [("retracted lognormal", 0.156),
             ("published sec.6.5c", 0.0095),
-            ("corrected here", p_clear(0.0, SIGMA_NEW, PROGRAM_MEAN_OFFICIAL))]
+            ("corrected here", p_clear(0.0, SIGMA_NEW, PROGRAM_MEAN_OFFICIAL)),
+            ("amended 18:30Z", 0.00439)]
 for name, v in attempts:
     print(f"  {name:<24s} {v * 100:8.3f} %")
 lo = min(v for _, v in attempts)
 hi = max(v for _, v in attempts)
-print(f"  spread {hi / lo:.0f}x across three attempts by the same advisor on the same")
+print(f"  spread {hi / lo:.0f}x across four attempts by the same advisor on the same")
 print("  data. That instability is the finding: the parametric route is not")
 print("  trustworthy at this tail, and the 0/106 rule-of-three bound should be the")
 print("  number carried into a decision.")
+print()
+print("  AMENDED 18:30Z (error sixteen, rule 30). SIGMA_NEW = 0.3728 % above came")
+print("  from ONE replicate group (df 4) and was justified as sub-quadrature by")
+print("  corr(ln cs, f) = -0.79. That correlation is refuted by n = 84 already in")
+print("  research/CURRENT_RESEARCH_STATE.md: -0.126, 95 % CI [-0.332, +0.091].")
+print("  Direct over four clean groups (df 12): sd(ln officialScore) = 0.4774 %,")
+print("  interval [0.3423 %, 0.7880 %] -> P = 0.439 %. Recompute with")
+print("  research/tools/receipt_k_invariant.py. The conclusion above is unchanged")
+print("  and now better supported: carry the model-free bound, not this table.")
