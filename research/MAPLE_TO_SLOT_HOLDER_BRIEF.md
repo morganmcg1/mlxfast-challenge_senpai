@@ -1,6 +1,18 @@
 # Maple → whoever holds the submission slot: one page, decision numbers only
 
-> ## ⇒ IF YOU READ ONE LINE (re-verified 16:27Z, **§0g**): the **slot is FREE** — 178 account rows,
+> ## ⇒ SUPERSEDING BANNER, 16:48Z (**§0h**): the slot is **NO LONGER FREE**. A submission `60cd9ca`
+> was created at **16:27Z** and is still `validating` at 16:48Z (20.5 min elapsed; §5's band is
+> ~15–25 min). The channel is serial, so **nothing else can be fired until it terminates**, and with
+> ~12 min to close a fresh fire behind it would very likely die unadjudicated. It is **not Maple's** —
+> Maple's local stand-down was verified at 16:37Z and again at 16:46Z (manifest §10(xi), §10(xiii)).
+> Everything below that says "the slot is FREE / you can fire now" was true at 16:27Z and is now
+> **stale**; read it as the reasoning, not the instruction.
+> **The one thing still worth doing:** when `60cd9ca` adjudicates it prints a `diff`, and
+> `bar = score − diff` is the **only bar reading anyone gets after 13:51Z**. Read it before you
+> conclude anything about whether the crown moved this afternoon. Full detail: manifest §10(xiii).
+
+> ## ⇒ IF YOU READ ONE LINE (re-verified 16:27Z, **§0g**; superseded on the slot question by §0h
+> above — the *bar* half still stands): the **slot was FREE at 16:27Z** — 178 account rows,
 > none pending or running, nothing created since 13:51Z — and the **bar has not moved**, still
 > 2.6195531 on three independent terminal-row readings spanning 09:20Z→13:51Z that agree to 2.5e−7.
 > **You can fire now, and the target has not run away from you.** One asymmetry to price honestly:
@@ -19,7 +31,7 @@
 > causal proof (§0e iv).
 
 Author: meridian (Maple research advisor). Written 2026-08-11 12:50Z, ≈4.2 h before close (17:00Z).
-Last updated 16:43Z (§0g, §0f, §0e, the receipt-census reading under arm 5, and the ranked-`_nax` prefill route noted just before §7;
+Last updated 16:48Z (§0h supersedes the slot-free headline — one submission is in flight from 16:27Z, not ours; §0g, §0f, §0e, the receipt-census reading under arm 5, and the ranked-`_nax` prefill route noted just before §7;
 pointer/consistency pass — `python3 research/tools/handoff_linkcheck.py`
 now exits 0 on this file and on the manifest, and manifest §10(vii) records the two cited artifacts that
 live on closed-unmerged student branches rather than here). Every figure below is re-derived in
@@ -34,6 +46,33 @@ campaign that does. Confirmed stood down at 16:03Z by local inspection (§0e i) 
 the channel's own row count (§0g) — two independent witnesses, no row created in the whole window.
 
 ---
+
+## 0h. 16:44–16:48Z — the slot closed behind us; what is left to read
+
+Four read-only polls of `mlxfast submissions` (16:44:xx, 16:45:10, 16:46:47, 16:47:32Z). The account now
+shows **179 rows: 107 rejected + 70 failed + 1 promoted + 1 `validating`**. The new row:
+
+```
+60cd9ca   morganmcg1   validating   score n/a   diff n/a   commit -   created 8/11/26 4:27 PM (16:27Z)
+```
+
+- **Slot occupied.** The channel is serial; nothing else fires until `60cd9ca` terminates. At 16:47:32Z
+  it had been validating **20.5 min**, inside but high in the ~15–25 min band (§5). With ~12 min to
+  close, a fire queued behind it would most likely end as an unadjudicated `n/a`.
+- **Not Maple's.** Local stand-down verified 16:37Z and re-verified 16:46Z: no crontab, empty `atq`, no
+  launchd agent, no `mlxfast` process (manifest §10(xi), §10(xiii) — the latter also lists the four
+  benign `ps | grep -i mlxfast` false positives, which match the *campaign directory name*, not the CLI).
+  All six Maple students are idle on terminal assignments.
+- **Bar unchanged, but this poll cannot refresh it.** Still 2.61955311 / 2.61955332 / 2.61955336 from the
+  three newest *adjudicated* rows (09:20Z→13:51Z), spread 2.5e−7 = print rounding on a 6-dp `diff`.
+  Published bar **2.6195531094824** stands as of 13:51Z and no later.
+- **The one number still worth collecting.** When `60cd9ca` adjudicates, `bar = score − diff` off that
+  row is the only bar reading available after 13:51Z, and the only evidence anyone will have about
+  whether the crown moved during the afternoon. Read it.
+
+This supersedes the "slot is FREE / you can fire now" instruction in §0g and everything below it. The
+*bar* half of §0g is untouched, and every recommendation in §1–§7 is unchanged — they were never
+conditional on the slot being free, only on what to spend it on if it were.
 
 ## 0g. 16:27Z FINAL PRE-CLOSE READ — nothing changed; here is what that does and does not prove
 
