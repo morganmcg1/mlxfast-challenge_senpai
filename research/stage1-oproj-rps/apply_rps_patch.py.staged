@@ -52,6 +52,11 @@ i = anchor("thread float result[results_per_simdgroup] = {0.0f, 0.0f, 0.0f, 0.0f
 edits.append((i, lines[i].replace(
     "= {0.0f, 0.0f, 0.0f, 0.0f};", "= {\\(lagunaOProjResultInit)};")))
 
+i = anchor("constexpr uint num_simdgroups = 2;", d_src, d_k1)
+edits.append((i, lines[i].replace(
+    "constexpr uint num_simdgroups = 2;",
+    "constexpr uint num_simdgroups = \\(lagunaOProjSimdgroups);")))
+
 # ---- 2. the four kernel-name literals --------------------------------------
 NAME_TAIL = '+ (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),'
 for lo, hi in ((d_k1, d_k2), (d_k2, d_k3), (d_k3, d_k4), (d_k4, d_disp)):
@@ -68,7 +73,17 @@ if len(grid_hits) != 2:
     sys.exit(f"FAIL: expected 2 dispatch grids, found {len(grid_hits)}")
 for i in grid_hits:
     edits.append((i, lines[i].replace("grid: ((outVec / 8) * 64, 1, 1),",
-                                      "grid: (tiles * 64, 1, 1),")))
+                                      "grid: (tiles * lagunaOProjThreads, 1, 1),")))
+
+# ---- 3b. the two dispatch threadgroup sizes --------------------------------
+tg_hits = [i for i in range(d_disp - 1, len(lines))
+           if "threadGroup: (64, 1, 1)," in lines[i]]
+tg_hits = tg_hits[:2]
+if len(tg_hits) != 2:
+    sys.exit(f"FAIL: expected 2 dispatch threadgroups, found {len(tg_hits)}")
+for i in tg_hits:
+    edits.append((i, lines[i].replace("threadGroup: (64, 1, 1),",
+                                      "threadGroup: (lagunaOProjThreads, 1, 1),")))
 
 # ---- 4. the guard that binds the grid to the compiled geometry -------------
 i2 = anchor("        return nil", d_disp, grid_hits[0])
@@ -89,7 +104,18 @@ for i, text in edits:
     print(f"  line {i+1}: {lines[i].strip()[:70]!r}")
     lines[i] = text
 
+import os
+
+STAGED = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                      "LagunaOProjGeometry.swift.staged")
+if not os.path.exists(STAGED):
+    sys.exit(f"FAIL: staged geometry file missing at {STAGED}")
+
+if os.environ.get("DRY") == "1":
+    print(f"DRY RUN: would apply {len(edits)} edits and install {STAGED} -> {NEWFILE}")
+    sys.exit(0)
+
 shutil.copyfile(SRC, "/tmp/LagunaRuntimeModel.swift.pre-rps")
 open(SRC, "w").write("\n".join(lines))
-shutil.copyfile("/tmp/LagunaOProjGeometry.swift", NEWFILE)
+shutil.copyfile(STAGED, NEWFILE)
 print(f"applied {len(edits)} edits; backup at /tmp/LagunaRuntimeModel.swift.pre-rps")
