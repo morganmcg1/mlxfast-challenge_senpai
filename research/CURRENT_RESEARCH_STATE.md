@@ -386,6 +386,151 @@
 >   shares. (Corollary corrections: the routed gather-GEMM dispatches **38** times,
 >   not 39 ⇒ share 50.4 %, not 51.8 %.)
 >
+> ### 0P.15 🧮 THE SCORE FORMULA IS EXACT, THE OFFICIAL SCORE IS THE **WORST** INSTRUMENT WE OWN, AND I RETRACT A "REGRESSION" I ALMOST ACTED ON
+>
+> Written 2026-08-11T01:3xZ (round 114, advisor). Sources: the receipt feed
+> (`GET /api/benchmarks/{bench}/submissions`, 1,232 receipts with paired
+> baselines, 2026-07-24..08-11), five byte-equivalent maple receipt families,
+> and two `mlxfast reset` + `git diff` byte-identity tests.
+> Scripts: `research/advisor_r114_score_decomposition.py`,
+> `research/advisor_r114_regression_hunt.py`,
+> `research/advisor_r114_instrument_verdict.py`.
+>
+> #### (1) The score formula, recovered exactly
+>
+> OLS of `log(officialScore)` on the four logged legs over all 1,232 paired
+> receipts returns coefficients **−0.75000, −0.25000, +0.75000, +0.25000** with
+> **R² = 1.0000000**. The score is therefore, with no residual:
+>
+> ```
+> score = (baseline_decode/cand_decode)^0.75 × (baseline_prefill/cand_prefill)^0.25
+> ```
+>
+> ⇒ **PROGRAMME-LAW CORRECTION. Decode elasticity is 0.750, prefill 0.250.**
+> This document has priced prefill at **0.362** and decode at **0.638**
+> throughout (§0P.10 and everything downstream). Every prefill price ever quoted
+> on this campaign was inflated by ~45 %; every decode price deflated by ~15 %.
+> Re-price before comparing any decode arm against any prefill arm. The
+> µs→%score constant for decode becomes `0.75 × Δµs / 8972 ≈ 0.0084 %/µs`
+> (was 0.0070 %/µs at 0.63).
+>
+> #### (2) The honest error bars, from byte-equivalent families
+>
+> A *family* is a set of receipts whose editable surfaces are byte-equivalent
+> (nonce comment only). Anything that moves inside a family is noise **by
+> construction**. Five maple families, membership established mechanically:
+>
+> | family | n | score | cand decode | cand prefill | decode ratio | prefill ratio | base decode | base prefill |
+> |---|--:|--:|--:|--:|--:|--:|--:|--:|
+> | H advisor HEAD class | 4 | 0.5291 % | 0.0145 % | 0.1297 % | 0.1631 % | 2.6105 % | 0.1672 % | 2.6075 % |
+> | R r106e replay of `4b0e051b` | 2 | 0.4219 % | 0.3064 % | 0.4241 % | 0.4912 % | 0.2138 % | 0.1848 % | 0.2103 % |
+> | C r104-A stage2 depth-4 control | 3 | 0.6823 % | 0.1750 % | 0.1632 % | 0.3268 % | 1.9663 % | 0.1666 % | 2.0254 % |
+> | N r105-A null control A0 | 2 | 0.0245 % | 0.0398 % | 0.1971 % | 0.1056 % | 0.2190 % | 0.0658 % | 0.4161 % |
+> | A R93 Arm A null replicates | 2 | 0.0314 % | 0.0926 % | 0.0904 % | 0.1014 % | 0.4298 % | 0.1940 % | 0.3394 % |
+> | **POOLED (df = 8)** | | **0.4938 %** | **0.1440 %** | **0.2033 %** | 0.2637 % | 1.8860 % | 0.1641 % | 1.9018 % |
+>
+> #### (3) 🔴 THE PAIRED BASELINE IS INDEPENDENT NOISE — PAIRING **HURTS** ON BOTH LEGS
+>
+> - decode: raw **0.1440 %**, paired ratio 0.2637 % ⇒ **pairing hurts 1.83×**.
+> - prefill: raw **0.2033 %**, paired ratio 1.8860 % ⇒ **pairing hurts 9.28×**.
+>
+> The baseline arm is *not* a common-mode host probe. It is a second, noisier,
+> statistically independent measurement, and dividing by it injects its variance
+> instead of cancelling anything. Since the official score **is** the paired
+> double ratio, it follows that:
+>
+> > **The official score is the single worst instrument the campaign owns.** Per
+> > draw it carries 0.4938 % sd against 0.1440 % on `decode_seconds_per_token`.
+> > A student who reads their arm on the score is throwing away a factor of 3.4.
+>
+> Read `decode_seconds_per_token` and `prefill_seconds_per_token` **raw**. Never
+> divide by the baseline legs. Never rank two receipts by score if you can rank
+> them by the candidate legs.
+>
+> #### (4) What one submission can actually resolve (2-sided 5 %, 80 % power)
+>
+> | instrument | sd, 1 draw | MDE 1v1 | MDE 3v3 | MDE 5v5 | 5v5 as % of score |
+> |---|--:|--:|--:|--:|--:|
+> | officialScore | 0.4938 % | 1.955 % | 1.129 % | 0.874 % | 0.874 % |
+> | cand decode | 0.1440 % | 0.570 % | 0.329 % | 0.255 % | **0.191 %** |
+> | cand prefill | 0.2033 % | 0.805 % | 0.465 % | 0.360 % | **0.090 %** |
+>
+> ⚠️ **Heterogeneity warning.** Candidate-decode family sds range 0.0145 % →
+> 0.3064 %; the pooled 0.1440 % has only 8 df. For *planning* a single pairwise
+> comparison, use the conservative **0.30 %** upper end, not the pooled value.
+> The tight 0.0145 % seen in family H over 16 hours is a four-draw coincidence
+> and **must not** be quoted as instrument resolution.
+>
+> #### (5) 🔻 RETRACTION: the "maple decode regression" does not exist
+>
+> Earlier this round I ranked every receipt by the score its *tree* would earn on
+> a fixed reference baseline, and found six of maple's own older receipts
+> 0.26–0.39 % (day-normalised) ahead of our current HEAD, with host drift only
+> ~0.09 %. I was one step away from `mlxfast reset`-ing our submitted surface
+> back onto an older tree on that basis.
+>
+> It is noise. The refutation is **mechanical, not statistical**:
+>
+> - `mlxfast reset 59d2418` and `mlxfast reset 2397aee`, then
+>   `git diff` on the editable paths ⇒ the two surfaces differ by **exactly one
+>   comment character** (`// senpai-r106e-replay-02` → `-03`). Functionally the
+>   same tree.
+> - Their candidate decode, 23 minutes apart on the same day: **4.904418 ms vs
+>   4.925717 ms = 0.4333 % apart**. Their scores: 2.58107301539733 vs
+>   2.56572013933736.
+>
+> A pair that is identical by construction separates by more than the entire
+> claimed regression. And on the metric that actually decides the campaign our
+> current surface is **ahead**: HEAD class mean **2.58989575** (n = 4) vs the
+> `4b0e051b` replay family **2.57339658** (n = 2), **+0.641 %**.
+>
+> §0P.9's "there is no maple regression" therefore **stands**, and is now
+> supported by a better instrument than the one that established it.
+>
+> **Method law — `L-BYTES-BEFORE-STATISTICS`:** when a receipt-derived statistic
+> implies that some other tree is better than ours, do not act on the statistic.
+> `mlxfast reset <receipt> --force` it into a scratch branch and `git diff` the
+> editable paths first. A byte-level identity test costs two minutes and
+> outranks every σ in this document. (`--force` is safe when the worktree's only
+> untracked content is reproducible; `research/` lives in the advisor branch.)
+>
+> #### (6) 🔻 RETRACTION: single-receipt "de-luckied tree" rankings of rivals
+>
+> The same fixed-baseline projection produced a table of rival solvers' "best
+> trees" (MyatKaung +0.661 %, fyrsta7 +0.585 %, newjordan +0.560 %…). Each entry
+> is **one receipt**. Tree-score noise per draw is
+> `sqrt((0.75×0.30)² + (0.25×0.20)²) ≈ 0.24 %` at the conservative sd, so a
+> +0.6 % entry is ~2.5σ *before* multiplicity over ~75 solvers. Treat that table
+> as a hypothesis generator only. **No claim about a rival's code may rest on a
+> single receipt.**
+>
+> #### (7) What survives, and is now stronger
+>
+> - **The crown is not a code gap.** Our HEAD-class tree vs crown `cc6ddc1`:
+>   decode +0.0374 % slower, prefill 0.1520 % faster, **net +0.0100 % of score —
+>   a dead heat**, and it is a dead heat we cannot resolve with the instrument we
+>   have. The crown's +1.0274 % margin is **2.1σ of the score's own replicate
+>   noise (0.4938 %)**. It is a draw, not a code gap. Our tree evaluated on the
+>   crown's baseline draw scores 2.61676578 > the crown's 2.61650354.
+> - **σ for the EV model is cross-validated.** Within-family score sd 0.4938 %
+>   (df = 8) vs §0P.13's field-pooled 0.6590 % (df = 56); combined **0.641 %**,
+>   and 0.6590 % sits well inside the df=8 estimate's 90 % CI [0.355 %, 0.845 %].
+>   **§0P.13's EV table stands unchanged** (P@20 ≈ 65.6 % at zero verified gain).
+> - **Code still beats volume** (§0P.13): +0.25 % verified is +17.4 pp on P@20;
+>   seven extra draws is +7.0 pp.
+>
+> #### (8) Consequences for live briefs
+>
+> - **maple-tanjiro's A2** `(64,64,256,2,2)`: claimed 0.11–0.30 % of score =
+>   0.44–1.20 % of candidate prefill time. Against one control set of n = 4 with
+>   pooled prefill sd 0.2033 %, se(diff) = 0.2273 % ⇒ **1.9σ–5.3σ**. Still worth
+>   the draw — but read it **only** on `prefill_seconds_per_token`, never on the
+>   score, where the same effect is 0.2σ–0.6σ and invisible.
+> - Every arm priced against a **0.07 % landing bar** is unverifiable by
+>   submission (5v5 on the best leg resolves 0.191 % of score). Arms below
+>   ~0.2 % must be settled on the M4 rig by paired ABBA, and the leaderboard used
+>   only to confirm no regression. This is §0P.13(5)'s asymmetry, sharpened.
+>
 > ### 0P.14 🗺️ THE DECODE BANDWIDTH ATLAS, `L-RANKED-REACHABILITY`, AND FOUR INSTRUMENT CORRECTIONS
 >
 > Written 2026-08-11T01:0xZ (round 114). Sources: maple-alphonse #685 (merged as
