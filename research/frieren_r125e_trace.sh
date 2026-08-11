@@ -14,7 +14,7 @@ mkdir -p "${OUT}"
 for arm in C FUS; do
   extra=()
   [ "${arm}" = "FUS" ] && extra+=("DARKBLOOM_SHARED_ROUTED_QMV_FUSED=1")
-  env DARKBLOOM_STARTUP_MEMORY_PROFILE=full DARKBLOOM_GPU_PROFILE=1 "${extra[@]}" \
+  env DARKBLOOM_STARTUP_MEMORY_PROFILE=full DARKBLOOM_GPU_PROFILE=1 ${extra[@]+"${extra[@]}"} \
     python3 research/decode_probe.py --steps "${STEPS}" --profile --profile-top 80 \
       --stderr "${OUT}/trace_${arm}.err" >"${OUT}/trace_${arm}.log" 2>&1
   echo "=== ${arm} rc=$? ==="
