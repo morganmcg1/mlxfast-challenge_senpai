@@ -48,6 +48,10 @@ fi
 if [ ! -d "${SCRATCH}" ]; then
   echo "=== cloning .build-worker -> ${SCRATCH} (APFS copy-on-write)"
   cp -Rc .build-worker "${SCRATCH}" || cp -R .build-worker "${SCRATCH}"
+  # Precompiled clang modules record the absolute module-cache path they were
+  # built under, so a cloned cache is rejected ("was compiled with module cache
+  # path .../.build-worker/..."). Drop it; only the .pcm files rebuild.
+  rm -rf "${SCRATCH}/clang-module-cache"
 fi
 
 echo "=== applying ${PATCH}"
