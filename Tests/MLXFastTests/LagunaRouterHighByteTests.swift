@@ -2,6 +2,7 @@ import Foundation
 import MLX
 import MLXFastCore
 @testable import MLXFastModel
+import MLXNN
 import Testing
 
 private let routerExperts = 256
@@ -120,11 +121,15 @@ func lagunaRouterHighByteProofWhenEnabled() throws {
         )
 
         let candidateGate = LagunaRuntimeMoEGate(config)
-        candidateGate.weight = payload
-        candidateGate.weightRowOffsets = offsets
-        candidateGate.eScoreCorrectionBias = bias
+        candidateGate.update(parameters: ModuleParameters.unflattened([
+            "weight": payload,
+            "weight_row_offsets": offsets,
+            "e_score_correction_bias": bias,
+        ]))
         let referenceGate = LagunaRuntimeMoEGate(config)
-        referenceGate.eScoreCorrectionBias = bias
+        referenceGate.update(parameters: ModuleParameters.unflattened([
+            "e_score_correction_bias": bias,
+        ]))
 
         let candidateDecode = candidateGate(
             candidate.normalized,
