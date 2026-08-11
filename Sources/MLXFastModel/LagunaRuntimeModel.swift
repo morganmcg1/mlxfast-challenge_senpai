@@ -4823,6 +4823,27 @@ private let lagunaTailNVFP4QMVHeader = """
 private let lagunaDecodeNVFP4QKVR1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_NVFP4_QKV_R1"] != "0"
 
+/// R125-B: simdgroups per threadgroup for the decode QKV projection.
+///
+/// The default `2` reproduces the shipped geometry byte-for-byte (64 threads per
+/// threadgroup, `rows / 2` threadgroups). Raising it multiplies threads per
+/// threadgroup by the same factor and divides the threadgroup count by it, so
+/// the total simdgroup count, the rows handled per simdgroup, and every byte
+/// fetched from device memory are invariant. Only threadgroup granularity moves,
+/// which is the axis under test.
+///
+/// Hazard: the appended `heads / 8` gate tiles in
+/// `lagunaDecodeNVFP4QKVGateSource` assume 64-thread threadgroups, so any value
+/// other than `2` is forced onto the non-appended dispatch path by the guard in
+/// `lagunaDecodeNVFP4QKVGate`.
+private let lagunaDecodeQKVSimdgroups: Int = {
+    guard
+        let raw = ProcessInfo.processInfo.environment["DARKBLOOM_QKV_SIMDGROUPS"],
+        let value = Int(raw), [1, 2, 4, 8, 16].contains(value)
+    else { return 2 }
+    return value
+}()
+
 private func lagunaDecodeNVFP4QKVR1Source(narrow: Bool = false) -> String {
 
 
