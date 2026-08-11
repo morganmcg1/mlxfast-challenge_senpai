@@ -1090,6 +1090,27 @@ retracted noise floor, and they stand:
   p90 gap, not the median** — a 90-minute budget is *inside* p90 and can expire
   while the shot is still legitimately queued.
 
+  **Follow-up half an hour later, and it settles which row of that table is
+  live.** Re-fetched at 08:52Z (1846 rows, `/tmp/subs_p12.json`): the
+  non-terminal count had risen **nine → ten**, and the in-flight ages were
+  69.8, 59.3, 55.2, 46.3, 38.3, 31.9, 24.4, 23.8, 21.8, 13.0 minutes — i.e. not
+  one row created after 07:42Z had gone terminal in seventy minutes, and the
+  arrival side had roughly doubled (rows created per hour today: 00→3, 01→6,
+  02→4, 03→5, 04→3, 05→5, 06→3, **07→11, 08→8 in 52 min ≈ 9/h**). My own
+  in-flight row `7eca997d` had then been `validating` for 55 min, already more
+  than twice the 25.1-min median shot gap. So the **p90 row is the live row, not
+  the tail**: the realistic remainder of the campaign is nearer **5 shots than
+  27**, and the honest crown probability nearer the **0.8–2.4 %** end of the
+  0.8–12.3 % range. Two consequences I acted on rather than merely noted: (i)
+  `--max-wait 10500` (175 min) on the running poller is correctly sized — a
+  90-minute budget would already have expired against a queue that is
+  demonstrably slower than that; (ii) the decision *not* to cancel the in-flight
+  ticket-7 shot to fix a note (see the disclosure in
+  `maple-fern-official-receipt-ledger.md`) gets stronger, not weaker, as the
+  queue degrades: at 55+ min of accrued wait the sunk cost of a re-queue is the
+  whole remaining budget for one arm.
+
+
 ---
 
 ## 8. Recommendations
@@ -1212,13 +1233,18 @@ public receipt list; nothing here is a transcribed number I cannot regenerate.
 
 | run | what it holds |
 |---|---|
-| [`fern-r109f-instrument-collapse`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/0u4takrf) | per-leg **robust** median/sd/cv with the plain moments and a `tail_inflation_x` column beside them (§5.3i), the 0.2393 % robust code-spread ceiling *and* the 1.7131 % plain one it replaced, the k=3 identical-executable gauge to 3 df with receipts-per-arm on every leg (`leg_gauge_k3`), the `MLX_SDPA_BLOCKS` local sweep, the host-drift control, the receipts-per-arm power table on both estimators, and **eight** retractions/corrections with corrected numbers |
-| [`fern-r109f-crown-lottery`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/s3a9sx43) | the draw-factor CDF, p(crown)/shot, crown code-rank vs luck-rank, and the elasticity table |
-| [`fern-r109f-arms`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/rs84aixl) | the local 2×2 arm ledger and every ranked receipt with normalized score and draw factor in separate columns |
+| [`fern-r109f-instrument-collapse`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/6k281dtr) | per-leg **robust** median/sd/cv with the plain moments and a `tail_inflation_x` column beside them (§5.3i), the 0.2393 % robust code-spread ceiling *and* the 1.7131 % plain one it replaced, the k=3 identical-executable gauge to 3 df with receipts-per-arm on every leg (`leg_gauge_k3`), the `MLX_SDPA_BLOCKS` local sweep, the host-drift control, the receipts-per-arm power table on both estimators, and **eight** retractions/corrections with corrected numbers |
+| [`fern-r109f-crown-lottery`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/7ea6kejp) | the draw-factor CDF, p(crown)/shot, crown code-rank vs luck-rank, and the elasticity table |
+| [`fern-r109f-arms`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/57g6hy56) | the local 2×2 arm ledger and every ranked receipt with normalized score and draw factor in separate columns |
 
 > **On run ids.** `wandb.init(name=…)` with no fixed `id` mints a fresh run on
-> every publication, so these URLs are the *current* triple and supersede two
-> earlier ones (`ye5blpir`/`fwgg927q`/`nljka6ol`, then `b7wax52n`/`113mldwe`/`c5wmpui4`).
+> every publication, so these URLs are the *current* triple and supersede three
+> earlier ones (`ye5blpir`/`fwgg927q`/`nljka6ol`, then
+> `b7wax52n`/`113mldwe`/`c5wmpui4`, then `0u4takrf`/`s3a9sx43`/`rs84aixl` —
+> that last one republished at 08:53Z only to carry the eighth retraction row,
+> the `MLX_SDPA_BLOCKS` **structural-zero** verdict with its new
+> `"reachable": 0` key, and a `retractions/count` summary scalar so the count in
+> this document and the count in the dashboard cannot silently disagree).
 > The project also contains one crashed run, `f9wyuoxq`: it died in
 > `wandb.Table.add_data` because the host-drift dict mixes numbers with a verdict
 > string, and a table column is strongly typed by its first row. Fixed by
