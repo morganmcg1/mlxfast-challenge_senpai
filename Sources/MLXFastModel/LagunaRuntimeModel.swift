@@ -1505,6 +1505,19 @@ if (sg < 3) {
 }
 threadgroup_barrier(mem_flags::mem_threadgroup);
 
+if ((head0 % gqa) == 0 && sg == 0) {
+    device bfloat* kc = (device bfloat*)k_cache +
+        (size_t)kv_head * (window * head_dim) +
+        (size_t)widx * head_dim;
+    device bfloat* vc = (device bfloat*)v_cache +
+        (size_t)kv_head * (window * head_dim) +
+        (size_t)widx * head_dim;
+    for (uint i = lane; i < head_dim; i += 32) {
+        kc[i] = tg_k[i];
+        vc[i] = tg_v[i];
+    }
+}
+
 threadgroup U outputs[4 * BN * BDP];
 threadgroup U max_scores[2 * BN];
 threadgroup U sum_exp_scores[2 * BN];
@@ -1647,19 +1660,6 @@ for (int p = 0; p < pair_planes; ++p) {
         pair_o1[p];
 }
 threadgroup_barrier(mem_flags::mem_threadgroup);
-
-if ((head0 % gqa) == 0 && sg == 0) {
-    device bfloat* kc = (device bfloat*)k_cache +
-        (size_t)kv_head * (window * head_dim) +
-        (size_t)widx * head_dim;
-    device bfloat* vc = (device bfloat*)v_cache +
-        (size_t)kv_head * (window * head_dim) +
-        (size_t)widx * head_dim;
-    for (uint i = lane; i < head_dim; i += 32) {
-        kc[i] = tg_k[i];
-        vc[i] = tg_v[i];
-    }
-}
 
 pair_max0 = max_scores[lane];
 pair_max1 = max_scores[BN + lane];
@@ -1963,6 +1963,19 @@ if (sg < 3) {
 }
 threadgroup_barrier(mem_flags::mem_threadgroup);
 
+if ((head0 % gqa) == 0 && sg == 0) {
+    device bfloat* kc = (device bfloat*)k_cache +
+        (size_t)kv_head * (capacity * head_dim) +
+        (size_t)widx * head_dim;
+    device bfloat* vc = (device bfloat*)v_cache +
+        (size_t)kv_head * (capacity * head_dim) +
+        (size_t)widx * head_dim;
+    for (uint i = lane; i < head_dim; i += 32) {
+        kc[i] = tg_k[i];
+        vc[i] = tg_v[i];
+    }
+}
+
 threadgroup U outputs[4 * BN * BDP];
 threadgroup U max_scores[2 * BN];
 threadgroup U sum_exp_scores[2 * BN];
@@ -2149,19 +2162,6 @@ for (int p = 0; p < pair_planes; ++p) {
         pair_o1[p];
 }
 threadgroup_barrier(mem_flags::mem_threadgroup);
-
-if ((head0 % gqa) == 0 && sg == 0) {
-    device bfloat* kc = (device bfloat*)k_cache +
-        (size_t)kv_head * (capacity * head_dim) +
-        (size_t)widx * head_dim;
-    device bfloat* vc = (device bfloat*)v_cache +
-        (size_t)kv_head * (capacity * head_dim) +
-        (size_t)widx * head_dim;
-    for (uint i = lane; i < head_dim; i += 32) {
-        kc[i] = tg_k[i];
-        vc[i] = tg_v[i];
-    }
-}
 
 pair_max0 = max_scores[lane];
 pair_max1 = max_scores[BN + lane];
