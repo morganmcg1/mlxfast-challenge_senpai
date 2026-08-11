@@ -13,6 +13,10 @@
 #   H = 3    router top-8 appended
 #   G = 23   both appended
 #   E = 0 + DARKBLOOM_DECODE_QKV_GATE_FUSED=0   R114-E reproduction probe
+#   R = 5    router guest appended but its result discarded, so the standalone
+#            tournament dispatch stays live (elision decomposition)
+#   W = 0 + DARKBLOOM_SHARED_QMV_WIDE8=1   shared-expert host widened to
+#            TG (256,1,1) / 64 tiles, nothing appended
 #
 # The E arm exists because R114-E's ranked -76.8 us/step came from a 36-run
 # ABBA on this instrument, not on decode_probe, so only a layer-2 C/E pair can
@@ -30,10 +34,11 @@ export MLXFAST_LOCAL_FAN_PROMPT=0
 
 arm_mode() {
   case "$1" in
-    C|N|E) echo 0 ;;
+    C|N|E|W) echo 0 ;;
     F) echo 2 ;;
     H) echo 3 ;;
     G) echo 23 ;;
+    R) echo 5 ;;
     *) echo "unknown arm $1" >&2; exit 2 ;;
   esac
 }
@@ -52,8 +57,11 @@ for (( n=0; n<${#ORDER}; n++ )); do
   i=$((i+1))
   mode=$(arm_mode "$arm")
   qkv=$(arm_qkv_gate "$arm")
+  wide8=0
+  [[ "$arm" == "W" ]] && wide8=1
   log="/tmp/r119_bench_${i}_${arm}.log"
   DARKBLOOM_GRID_APPEND="$mode" DARKBLOOM_DECODE_QKV_GATE_FUSED="$qkv" \
+    DARKBLOOM_SHARED_QMV_WIDE8="$wide8" \
     ./benchmark.sh --local-iterate > "$log" 2>&1
   dec=$(grep -o '"decode_seconds_per_token" : [0-9.e-]*' "$log" | tail -1 | awk '{print $3}')
   pre=$(grep -o '"prefill_seconds_per_token" : [0-9.e-]*' "$log" | tail -1 | awk '{print $3}')
