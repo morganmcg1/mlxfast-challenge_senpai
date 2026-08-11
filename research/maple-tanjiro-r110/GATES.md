@@ -19,6 +19,17 @@ Assignment base for the diff: `30904ecbf180aa05d7ddf5cc957e83155fbfc6f4`.
 > "live on this branch" for A1; that is superseded by the head re-gate recorded
 > in the A2 section.
 
+> **rev3 note on the base merge.** The branch forked at `9fe37190` while the
+> assignment base advanced to `30904ecb`, so `30904ecb` was **merged** into the
+> branch at hand-off. It was merged rather than rebased deliberately: a rebase
+> rewrites every commit id, which would have stranded the published head
+> `35575f28` and invalidated the "worker commit" id in every transcript below.
+> After the merge those ids are still live, and the merge brings in **advisor
+> `research/` files only** — `git diff --numstat` over
+> `Sources Vendor benchmark.json Package.swift` across it is empty, so the
+> submitted surface is untouched and each gate transcript still measures exactly
+> the tree that will be fired.
+
 ## A1 — `darkbloom_expert_down_bn()` 64 -> 32 (live on this branch)
 
 ### Scope and budget
