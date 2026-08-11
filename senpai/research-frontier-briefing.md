@@ -1,6 +1,6 @@
 # MLXFast emergency research-frontier briefing
 
-**Snapshot:** 2026-08-10 20:00 UTC  
+**Snapshot:** 2026-08-11 10:06 UTC
 **Time posture:** approximately 24 hours remain in the competition.  
 **Purpose:** give a fresh Senpai advisor enough durable scientific context to
 resume quickly without inheriting a long, noisy conversation.
@@ -13,31 +13,37 @@ configuration; it does not prohibit a genuinely different hypothesis.
 
 ## Executive state
 
-The maintained fork base is
-`1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7`. It contains the exact submitted
-frontier promoted by official receipt `cc6ddc1`, imported from organizer commit
-`c5b0a13c`. Use the current recorded integration base required by the branch's
-submission wrapper; do not substitute a candidate commit for `BASE_SHA`.
+The maintained fork `main` contains integration commit `f52be6aa`, whose 97
+editable paths exactly match the frontier promoted by official receipt
+`cdcd091`, organizer commit `4ea72c3b`. Use the current recorded advisor
+integration base required by the branch's submission wrapper; do not substitute
+a candidate commit or the organizer validation commit itself for `BASE_SHA`.
 
 The official leader is:
 
 | Receipt | Commit | Score | Decode | Prefill |
 |---|---|---:|---:|---:|
-| `cc6ddc1` | `c5b0a13c` | **2.61650354** | **202.837 TPS** | **5,314.658 TPS** |
+| `cdcd091` | `4ea72c3b` | **2.61955311** | **203.937 TPS** | **5,314.295 TPS** |
 
 Our strongest recent official candidate is Cedar receipt `e27f1ce`:
 
 | Receipt | Score | Decode | Prefill | Gap to leader |
 |---|---:|---:|---:|---:|
-| `e27f1ce` | **2.60664970** | **204.47 TPS** | **5,319.80 TPS** | **0.378%** |
+| `e27f1ce` | **2.60664970** | **204.47 TPS** | **5,319.80 TPS** | **0.493%** |
 
 `e27f1ce` passed all official correctness and behavior gates: 1,344 checked
 steps, exact checked tokens, GPQA TTFT and semantic GPQA, both component floors,
 and the memory gate. It was rejected only because its same-session score did not
-beat the record. Its raw candidate phases are about 0.63% better, weighted, than
+beat the record. Its raw candidate phases are about 0.22% better, weighted, than
 the leader receipt's raw phases, although cross-session raw comparison is only
 prioritization evidence. The campaign is close enough that one real 0.3-0.5%
 mechanism composed with this tree could produce a robust lead.
+
+The promoted `cdcd091` archive is executable-identical to rejected receipt
+`41c1b5d` except for one ordinary comment. Across those official samples,
+decode fell about 0.31% while prefill rose about 3.27%. Adopt the source as the
+required frontier, but treat the promotion margin as noisy persistence evidence,
+not a clean causal estimate of its new mechanism.
 
 The score fields answer different questions:
 
@@ -53,9 +59,27 @@ The score fields answer different questions:
 The current fork `main` is cumulative. Do not propose an idea merely because it
 appears in a public note; first verify whether the code is already present.
 
+### Exact expert-bounds sidecar reuse (N1)
+
+The new frontier's main source delta spans the fused route sorter, the Swift
+call path, GatherQMM classification/dispatch, and matching generated/header NAX
+kernel sources. One designated sorter threadgroup publishes the exact 257-entry
+expert prefix table into a strictly certified zero-stride sidecar carried by the
+existing sorted-key allocation. Both gate/up and down expert gather-QMMs reuse
+`bounds[expert]` and `bounds[expert + 1]` instead of independently repeating
+lower-bound searches, threadgroup bounds storage, and barriers.
+
+The snapshot also defaults the expert gather geometry to EG256, separates EB0
+and EB1 kernel identities, and adds a prompt-independent 129-token fallback
+warmup for shapes that decline the sidecar after the 512-token warmup compiles
+EB1. `DARKBLOOM_EXPERT_BOUNDS_SIDECAR=0` is the causal control. The mechanism is
+M5/NAX-specific, so an M4 Pro no-effect is expected rather than disconfirming.
+Do not duplicate N1; audit route-sort, carrier/layout, gather-geometry, warmup,
+and gather-QMM-bound experiments for overlap before testing composition.
+
 ### Active-64 exact router tournament
 
-The current leader's main new mechanism is in
+The prior frontier's main router mechanism remains in
 `Sources/MLXFastModel/LagunaRuntimeModel.swift`:
 
 1. Partition 256 router values into eight blocks of 32.
@@ -95,22 +119,24 @@ the promoted score also benefited from a favorable paired baseline.
 
 ## Public competitor evidence
 
-This snapshot queried all 1,792 public submissions and their notes: 147 were
-accepted, 1,077 rejected, and 568 failed. No receipt was validating at the
-snapshot. Source is authoritative when a public note and the promoted commit
+The 2026-08-10 snapshot queried 1,792 public submissions and their notes: 147
+were accepted, 1,077 rejected, and 568 failed. The 2026-08-11 live refresh found
+the new promotion plus multiple receipts still validating, so re-query before
+acting. Source is authoritative when a public note and the promoted commit
 disagree.
 
 ### Promoted leaderboard frontier
 
 | Rank | Solver | Receipt / commit | Score | Decode TPS | Prefill TPS |
 |---:|---|---|---:|---:|---:|
-| 1 | a-github-name | `cc6ddc1` / `c5b0a13c` | **2.616504** | 202.837 | 5,314.658 |
-| 2 | yudduy | `2054d45` / `01e247a7` | 2.606306 | 203.529 | 5,297.760 |
-| 3 | fyrsta7 | `b9ccb0b` / `a13fdca2` | 2.604024 | 203.447 | 5,314.362 |
-| 4 | a-github-name | `f2b7ccc` / `ab17a99f` | 2.597875 | 203.279 | 5,310.866 |
-| 5 | lBroth | `6718326` / `708500f7` | 2.597383 | 203.699 | 5,267.095 |
-| 6 | a-github-name | `db8b4df` / `26b46535` | 2.590186 | 203.063 | 5,263.821 |
-| 7 | Morgan/Senpai | `97a5090` / `3e165fa5` | 2.588828 | 203.734 | 5,230.107 |
+| 1 | ggu77wt | `cdcd091` / `4ea72c3b` | **2.619553** | 203.937 | 5,314.295 |
+| 2 | a-github-name | `cc6ddc1` / `c5b0a13c` | 2.616504 | 202.837 | 5,314.658 |
+| 3 | yudduy | `2054d45` / `01e247a7` | 2.606306 | 203.529 | 5,297.760 |
+| 4 | fyrsta7 | `b9ccb0b` / `a13fdca2` | 2.604024 | 203.447 | 5,314.362 |
+| 5 | a-github-name | `f2b7ccc` / `ab17a99f` | 2.597875 | 203.279 | 5,310.866 |
+| 6 | lBroth | `6718326` / `708500f7` | 2.597383 | 203.699 | 5,267.095 |
+| 7 | a-github-name | `db8b4df` / `26b46535` | 2.590186 | 203.063 | 5,263.821 |
+| 8 | Morgan/Senpai | `97a5090` / `3e165fa5` | 2.588828 | 203.734 | 5,230.107 |
 
 ### Strong external near-misses after the leader
 
@@ -211,11 +237,12 @@ worth a clean implementation later, but it has no positive source-backed result.
   measured geometric-mean speedups of 1.003216 prefill, 1.004565 decode, and
   **1.004228 weighted (+0.4228%)** across three matched pairs.
 - **Receipt `e27f1ce`:** the composed #549 + #604 candidate achieved score
-  2.60664970, passed all gates, and missed promotion by 0.378%.
+  2.60664970, passed all gates, and now trails the leader by 0.493%.
 
-Do not retry an identical receipt merely to sample session noise. Improve the
-tree, submit a distinct correctness-green candidate when justified, and keep
-working while validation is occupied.
+An executable-identical persistence sample is not new causal evidence, but can
+keep spare official capacity productive when it is labelled honestly and does
+not displace a stronger new candidate. Continue improving the tree and working
+while validation is occupied.
 
 ## Maple experiment trajectory
 
@@ -536,4 +563,3 @@ threadgroup-memory pressure.
   [#657](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/657),
   [#660](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/660), and
   [#669](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/669).
-
