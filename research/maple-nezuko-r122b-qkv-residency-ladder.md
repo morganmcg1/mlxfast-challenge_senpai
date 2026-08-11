@@ -430,7 +430,80 @@ Evidence collected for (1) is in §4.3.
 
 ## §4. The ladder
 
-_Placeholder at the pre-registration commit._
+### 4.1 The arms actually run, and the two campaigns
+
+All timing is this host: Apple M4 Pro, 20 GPU cores, 48 GiB, Apple GPU
+generation 16. Instrument is `research/maple-nezuko-r107j-certify.sh`,
+which drives `./benchmark.sh --local-submit` (1023 scored decode steps,
+end-to-end wall), rotates the within-block arm order every block, and
+writes its TSV incrementally so a truncated campaign still yields whole
+blocks. Every arm reaches the kernel through the same env-var route, so
+the cost of the route itself cancels in every paired difference. `Q1` is
+the reference arm and is the **shipped default**: `rps = 1` produces the
+empty geometry suffix (§2.1), so `Q1` is byte-identical to the base
+pipeline, not merely numerically equal to it.
+
+| campaign | session | arms | blocks | status |
+| --- | --- | --- | --- | --- |
+| 1 | `20260811T091536Z` | `Q1`, `Q8` | 1 of 3 | cancelled at 09:23:40Z after block 1, deliberately |
+| 2 | `20260811T092338Z` | `Q1`, `Q2`, `Q4`, `Q8` | 3 | full |
+
+Campaign 1 was a two-arm bracket: check the far rung first, on the theory
+that if `Q8` did not win there was no interior optimum worth resolving. It
+did not win, by a wide margin, so the bracket had done its job after one
+block and the remaining wall clock was worth more spent on the shape
+between `Q1` and `Q8`. That decision and its reasoning were committed as
+§1.8 at 09:23Z, before campaign 2 produced any data. `Q16` was declined;
+§8 item 5 re-argues why.
+
+Raw TSVs for both campaigns are committed under `research/r122b-runs/`.
+The `head` column changes between blocks of campaign 2 because
+documentation commits landed while it ran; no `Sources/` file changed after
+`a5746c6f`, and the byte-identical golden hash across all blocks (§4.2) is
+the check that this is true.
+
+### 4.2 Bit-identity: measured, not argued
+
+Every run of every arm in both campaigns reports `passed=true` and the
+**same** golden hash over its 1023 decode steps:
+
+```
+f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2
+```
+
+One hash, every rung, every block. This is the §2.4 identity argument
+discharged empirically, including its compiler caveat: the reassociation
+concern in §2.4 was that a compiler might contract or reorder the
+per-row accumulation differently once the accumulator became an array, and
+a single differing token anywhere in 1023 steps would have shown up as a
+different hash. None did.
+
+So the ladder is a pure timing result. Nothing below trades accuracy for
+speed, and no rung would have needed a correctness argument to ship.
+
+### 4.3 Hazard (a) — silent fallback — is excluded by the timings themselves
+
+§3.2 pre-committed to proving that a null was not just the dispatch guard
+rejecting the new geometry and quietly running the old kernel. The plan was
+a trace run. It turned out not to be needed, because the data exclude the
+hazard more directly than a trace would:
+
+- Bit-identity alone cannot exclude it — a silent fallback would also be
+  bit-identical, which is exactly why §3.2 flagged it.
+- But a silent fallback would also be **time-identical**, and the arms are
+  not time-identical. `Q2`, `Q4` and `Q8` each differ from `Q1` by an
+  interval that excludes zero, and `Q8` differs from `Q2` and `Q4` by far
+  more than the block-to-block spread (§4.4). A fallback path cannot
+  produce a large `Q8`-specific regression from a parameter it ignored.
+  (`Q2` and `Q4` are close to each other — that is the finding of §5.4, not
+  a fallback signature, because both are still clearly separated from
+  `Q1`.)
+
+That argument is stronger than the planned trace, because it uses the
+scored measurement rather than a side channel. It does depend on the
+differences being real, which §4.4 establishes; had the ladder come back
+flat, the trace would have been mandatory. Recording that dependency
+because it is the kind of conditional a reader should be able to check.
 
 ## §5. Mechanism
 
