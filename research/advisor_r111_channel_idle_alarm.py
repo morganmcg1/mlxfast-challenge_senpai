@@ -13,12 +13,25 @@ Read-only: it never submits anything.
 from __future__ import annotations
 
 import argparse
+import re
 import subprocess
 import sys
 import time
 
 NON_TERMINAL = ("validating", "queued", "running", "pending", "evaluating")
 TERMINAL = ("rejected", "accepted", "failed", "scored", "completed", "promoted")
+
+# BUGFIX 2026-08-11T00:10Z. `mlxfast submissions` colourises the status column,
+# so the raw third whitespace field is "\x1b[31mrejected\x1b[39m", which matched
+# NEITHER tuple above. The 2026-08-10T23:31Z watcher run therefore logged
+# "UNUSABLE POLL" on all 29 minutes of polls and COULD NOT HAVE FIRED. Strip
+# SGR sequences before classifying. Lesson: an alarm whose "cannot classify"
+# branch is silent-by-design is indistinguishable from an alarm that is working.
+ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def strip_ansi(s: str) -> str:
+    return ANSI_RE.sub("", s)
 
 
 def poll() -> tuple[str, str]:
@@ -31,12 +44,12 @@ def poll() -> tuple[str, str]:
     )
     if out.returncode != 0:
         return (f"ERROR rc={out.returncode} {out.stderr.strip()[:200]}", "unknown")
-    rows = [ln for ln in out.stdout.splitlines() if ln.strip()]
+    rows = [ln for ln in strip_ansi(out.stdout).splitlines() if ln.strip()]
     if not rows:
         return ("ERROR empty output", "unknown")
     last = rows[-1]
     fields = last.split()
-    status = fields[2] if len(fields) > 2 else "unknown"
+    status = fields[2].strip().lower() if len(fields) > 2 else "unknown"
     return (last[:160], status)
 
 
@@ -45,10 +58,23 @@ def main() -> int:
     ap.add_argument("--interval", type=float, default=120.0)
     ap.add_argument("--idle-exit-polls", type=int, default=3)
     ap.add_argument("--max-minutes", type=float, default=90.0)
+    ap.add_argument("--unusable-exit-polls", type=int, default=3)
+    ap.add_argument(
+        "--selftest",
+        action="store_true",
+        help="classify one live poll and exit; regression guard for the ANSI bug",
+    )
     args = ap.parse_args()
+
+    if args.selftest:
+        row, status = poll()
+        ok = status in NON_TERMINAL or status in TERMINAL
+        print(f"selftest status={status!r} classified={ok} | {row}", flush=True)
+        return 0 if ok else 2
 
     deadline = time.time() + args.max_minutes * 60.0
     idle_streak = 0
+    unusable_streak = 0
 
     while time.time() < deadline:
         row, status = poll()
@@ -58,14 +84,27 @@ def main() -> int:
             idle_streak += 1
         else:
             # Unrecognised status (e.g. an auth failure) is NOT evidence of an
-            # idle queue. Do not raise a false alarm on it.
+            # idle queue, so it must not raise the IDLE alarm. But it must not
+            # be silent either: the 23:31Z run spent 29 minutes here and looked
+            # healthy. Fail loudly after a few consecutive unusable polls.
+            unusable_streak += 1
             print(
                 f"[{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}] "
-                f"UNUSABLE POLL status={status} | {row}",
+                f"UNUSABLE POLL #{unusable_streak} status={status!r} | {row}",
                 flush=True,
             )
+            if unusable_streak >= args.unusable_exit_polls:
+                print(
+                    "ALARM (BLIND): the watcher cannot classify submission "
+                    f"status after {unusable_streak} consecutive polls. It is "
+                    "NOT reporting an idle queue -- it is reporting that it "
+                    "can no longer tell. Inspect `mlxfast submissions` by hand.",
+                    flush=True,
+                )
+                return 2
             time.sleep(args.interval)
             continue
+        unusable_streak = 0
         print(
             f"[{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}] "
             f"status={status} idle_streak={idle_streak} | {row}",
