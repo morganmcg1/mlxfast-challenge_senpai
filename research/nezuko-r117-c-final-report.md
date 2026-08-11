@@ -26,7 +26,7 @@ Host: Apple M4 Pro, 20 GPU cores, 48 GiB. All levels are `--local-submit`, 1023 
 | F4 | r94 decode-residue ledger byte overcount | correction to another student's artefact | proven, arithmetic |
 | F5 | order artefacts land in the **intercept**, not the slope, on a rotation design | methodological | proven by self-test |
 | F6 | byte→time transfer τ = **+0.780 [+0.727, +0.833]** (honest band [0.73, 1.08]) | reusable calibration | measured, 35 runs |
-| F7 | o_proj activation re-read geometry / `B_act` | <!--F7-STATUS--> | <!--F7-STATUS2--> |
+| F7 | o_proj geometry `rps 4→2`: **−79.4 µs/token = −0.885 % decode** | **positive, LANDED**; byte model falsified *by sign* (occupancy-limited, not bandwidth-limited) | proven, CI95 [−87.8, −71.1] excludes 0, 8/8 blocks, control covers 0 |
 | F8 | `sliding_fused_attn_ring_v1` dispatches **32 threadgroups on 20 cores** | hand-off, static + profile evidence | proven by dispatch dump, unmeasured |
 
 ### 0b. Corrections log — things I published and then had to take back
@@ -382,7 +382,93 @@ never-yet-measured `R2` arm at **−66.8 µs/step**.
 
 ### 5.4 Ladder result (amendment 14: 3 arms × 8 blocks = 24 runs, pre-registered)
 
-<!--F7-LADDER-->
+Raw array: `research/data/nezuko-r117-stage1-oproj-ladder-20260811T051314Z.tsv`
+(24 rows, session `20260811T051314Z`, head `5082cd467bae`, ~198 s/run).
+Analyser: `python3 research/maple-nezuko-r107j-paired-ci.py <tsv>`.
+
+Three arms, blocked and interleaved, one `--local-submit` binary, env-gated:
+
+| arm | gate | geometry | threadgroups | role |
+|---|---|---|---|---|
+| `C` | *(none)* | shipped `rps=4, ns=2` | 128 | reference |
+| `G4` | `DARKBLOOM_OPROJ_ROWS_PER_SIMDGROUP=4` | `rps=4, ns=2` | 128 | **byte-identical A/A control** |
+| `R2` | `DARKBLOOM_OPROJ_ROWS_PER_SIMDGROUP=2` | `rps=2, ns=2` | 256 | candidate |
+
+`G4` sets the env var to the value the fallback already returns, so it compiles
+and runs the *same* kernel as `C`. It is the negative control the campaign rule
+demands: if its interval did not cover zero, the instrument would be measuring
+the gate rather than the geometry.
+
+**Per-arm levels (µs/token, census):**
+
+| arm | n | mean | sd | cv% | passed | golden |
+|---|---|---|---|---|---|---|
+| `C` | 8 | 8971.868 | 4.014 | 0.045 | 8/8 | `f49e4c2c…` |
+| `R2` | 8 | 8892.438 | 11.294 | 0.127 | 8/8 | `f49e4c2c…` |
+| `G4` | 8 | 8963.509 | 27.957 | 0.312 | 8/8 | `f49e4c2c…` |
+
+A **single golden hash across all 24 runs** and 0 correctness failures.
+
+**Paired contrasts (marginal, reference `C`):**
+
+| contrast | point | CI95 | covers 0 | sign-flip p | t |
+|---|---|---|---|---|---|
+| **`R2` − `C`** | **−79.431 µs/token** | **[−87.811, −71.050]** | **NO** | **0.0078** | −22.4 |
+| `G4` − `C` (control) | −8.359 µs/token | [−33.267, +16.549] | **YES** | 0.727 | −0.79 |
+
+`R2 − C` is **−0.885 % decode** [−0.979, −0.792], and **8/8 blocks are negative**.
+`p = 0.0078` is the floor of the exact sign-flip test at n = 8 — the design cannot
+produce a smaller number, so this is as strong as 8 blocks can be. Diagnostics:
+prefill `d = +7.231 µs` CI95 [−8.608, +23.070] (neutral), position OLS slope
+`−2.155 µs/position` CI95 [−9.036, +4.726] (no ordering confound).
+
+The control's interval covers zero but is wide (±24.9 µs) because of one outlier:
+`G4` block 4 read 8896.071 µs, ~68 µs below its other seven runs and the longest
+wall clock in the array (167 s). Dropping it puts `G4 − C` at +1.86 µs. I am
+**not** dropping it — it was not pre-registered as excludable — but I record that
+the control passes both with it (p = 0.727) and without it, and that its presence
+makes the `R2 − G4` contrast *conservative* (−67.3 µs) rather than flattering.
+This is why `C`, not `G4`, is the reference: `C` is the ungated shipped path and
+has sd 4.0 µs.
+
+**Out-of-sample check.** Amendment 12 fitted the occupancy+bandwidth form on the
+pre-flight singles *before* `R2` was ever run and predicted **−66.8 µs/step**.
+Observed: **−79.4 µs**. Right sign, right order, ~19 % under-predicted. The
+pre-registered prediction survives.
+
+**The byte model is falsified by sign.** `R2` *adds* +314.6 MB/step of activation
+re-reads and still wins. At 20 cores this kernel is occupancy-limited, not
+bandwidth-limited; the shipped `rps=4` geometry leaves 128 threadgroups on a
+20-core GPU and `rps=2` refills it to 256. This is the same lesson as F8 stated
+from the other direction, and it is why the assigned byte-floor mechanism (F1)
+could not have paid even if the bytes had been there.
+
+**Landed.** `Sources/MLXFastModel/LagunaOProjGeometry.swift` default `4 → 2`
+(one character). The suffix predicate is deliberately left pinned to `rps==4`, so
+the shipped default now emits the `_rps2ns2` function — the exact compiled
+pipeline the `R2` arm measured, not merely the same source.
+
+**Confirmation of the landed default**, ungated, no env vars, full gates
+(`research/data/nezuko-r117-stage1-landed-default-verify.log`):
+decode **8884.87 µs/token**, inside the `R2` range [8876.1, 8908.7] and below
+*every one* of the eight `C` observations (min 8965.34); `passed_correctness:
+true`, `passed: true`, golden `f49e4c2c…`, decode speedup 1.56×.
+
+*(Local `prefill_speedup` is 0.326 and fails its floor here, but it does so
+identically on the untouched `C` arm — this M4 Pro reports GPU generation 16 and
+never selects the `_nax` prefill kernels. It is a host limitation, not a
+regression, and prefill is not adjudicable on this machine at all.)*
+
+**Transfer caveat, stated plainly.** This is a threadgroup-geometry change —
+precisely the class `program.md` flags as M4→M5 fragile, with a prior case that
+went +7.32 % on M4 and ~0.0 % on M5 through core-count quantisation. The
+mechanism argues the win should survive or grow (256 TGs × 64 threads = 16,384
+threads is *more* starved on a ~40-core M5, not less), but `R2` also adds
++314.6 MB/step of activation traffic, which is a real cost that a wider machine
+could price differently. **This must be settled by an official M5 run.** I could
+not dispatch one: `senpai/submit-official.sh` refuses because my recorded
+`BASE_SHA` differs from current `origin/main` across 27 submitted files (see
+§7).
 
 ---
 
