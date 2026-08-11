@@ -83,6 +83,50 @@ first:** `research/tools/recompute_replicate_sigma_and_draw_odds.py` also prints
 sd 0.538 %. **Same digits, unrelated inputs — a coincidence, not a replication.** If you run both
 tools, do not read agreement into it.
 
+### 0c. 16:00Z — what a fire has to BEAT (fern, #745, final commit). Read this if you read nothing else in §0.
+
+Everything above prices the **channel** (will the row adjudicate, will it score). None of it priced
+the **target**. fern opened the four snapshot fields nobody had read — `officialScore`,
+`claimedScore`, `improved`, `promotionStatus` — and the semantics are not what we assumed.
+
+**(1) `accepted` does not mean "a good submission". It means "took the world record at that
+instant".** `improved == True` on exactly the 148 accepted rows, and `improved == (score > GLOBAL
+prior max)` on **1294/1296 = 99.85 %** of scored rows, versus only 905/1296 for the account's-own-best
+model. So the 1148 "score did not improve current best" rejections are **the normal outcome — 88.6 %
+of all scored fires** — and our record of "1 accepted in 177" means **we held the crown once**, not
+that we fire badly. Do not read a non-`accepted` row as a defect.
+
+**(2) The bar is read at ADJUDICATION time, not at fire time** (1294 vs 1288 agreement). This is
+operationally new and it is a live risk for a row sitting in `validating`: **a competitor record
+landing while your row validates raises the bar underneath it.** Two anomalies reported rather than
+smoothed: the first scored row was not marked improved (the ratchet starts at/above the ~1.0004
+baseline), and one row was marked improved against a best 0.43 % higher — an apparent race.
+
+**(3) The ratchet has stalled.** Advances by day: 29 on 08-01, then 7, 7, 1, 0, 3, 3, 1, 0, 0, 1.
+**Only two advances since 08-08**, at +0.391 % and +0.117 %. The current bar 2.6195531094824 was set
+by `ggu77wt` at **09:34:06Z today**.
+
+**(4) Model-free crown probability, era-first — and fern lowered her own published prior to fit it.**
+Our best receipt 2.60664969895906 needs **+0.4950 %** to take the bar. Fires that cleared their
+standing bar by ≥ that margin: **all-time 61/1295 = 4.71 %**, but **current era 0/158 = 0.00 %
+(≤1.88 % one-sided 95 % CP)**. Chained with the channel: **P(crown from the last draw) ≤ 0.796 × 1.00
+× 1.88 % = ≤1.50 %.** Her own previously published per-draw prior of 1.5–2 % (mid 1.75 %) sits *above*
+that ceiling, so she retracted it; `published_prior_exceeds_era_ceiling` is computed, not asserted.
+She also ran the era split **before** publishing this time — the exact trap she had been caught by one
+result earlier — and kept the all-time 4.71 % only as a labelled optimistic bound.
+
+**(5) Bar-rise hazard before close**, both routes, no false precision: **calendar 3.2–15.3 %,
+in-flight 9.2–32.0 %.**
+
+**How this sits with the other bounds in this brief.** Three independent populations now bracket the
+same decision: our own account's draws vs today's bar (**0/106 ⇒ ≤2.83 %**, §2a), the fleet's
+current-era fires clearing by our required margin (**0/158 ⇒ ≤1.88 %**, above), and edward's
+parametric point estimate (**0.04 %**, §2). They are not the same quantity and should not be averaged
+— but every one of them says the same thing, and the two model-free ones agree without sharing an
+input. **A re-fire of the tree we hold is worth ≤1.5 % of a crown after the channel discount.** Fire
+it anyway if the slot frees, because the alternative is worth exactly zero — but do not spend
+anything to buy that draw.
+
 ---
 
 ## 1. The five numbers that decide a firing decision
