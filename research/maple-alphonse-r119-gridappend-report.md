@@ -212,11 +212,16 @@ verify.
 Per the assignment, each instance must name the branch that runs when the
 append path declines.
 
-All lines are in `Sources/MLXFastModel/LagunaRuntimeModel.swift` and are quoted
-**at branch HEAD `7f5a7867`**. The four R114-E rows are unchanged from
-`BASE_SHA`; the R119-A rows shifted by ~+28 lines when the pass-2 arms were
-added, so earlier drafts citing `:11163` / `:11238` / `:8357` refer to the same
-code at an earlier commit.
+All lines are in `Sources/MLXFastModel/LagunaRuntimeModel.swift`. Every line
+below was re-read and re-verified at `dbd4b9f3`, the last commit that touches
+that file, and is therefore current at branch HEAD. The four R114-E rows are
+byte-identical at `BASE_SHA` (checked with `git show $BASE_SHA:…`); the R119-A
+rows shifted by ~+28 lines when the pass-2 arms were added, so earlier drafts
+citing `:11163` / `:11238` / `:8357` refer to the same code at an earlier
+commit. The one remaining pre-submission edit — flipping the shipped
+`DARKBLOOM_GRID_APPEND` default at `:8241` from `"23"` to `"0"` (§9a) — replaces
+one token on one line and shifts nothing below it, so this table stays valid at
+the submitted commit.
 
 | instance | fallback branch | file:line |
 | --- | --- | --- |
@@ -227,7 +232,7 @@ code at an earlier commit.
 | **2** (shared bank guard) | `guard let banks = fusedSharedBankGuard(x) else { return nil }` | `:9382` |
 | **3** (router) | standalone tournament `var (inds, weights) = gate(x, logits: routerLogits)` stays in force; the append result only *overwrites* it at `:11263–11267` | `:11191` |
 | **retroactive, R114-E** | QKV: `fusedQKVGate?.qkv ?? lagunaDecodeNVFP4QKVR1(...)` | `:6073–6077` |
-| **retroactive, R114-E** | gate: `if let fusedGate = fusedQKVGate?.gate { … } else if … lagunaGateSoftplus(…)` | `:6110–6121` |
+| **retroactive, R114-E** | gate: `if let fusedGate = fusedQKVGate?.gate { … } else if … lagunaGateSoftplus(…)` | `:6111–6121` |
 
 R114-E's flag `lagunaDecodeNVFP4QKVGateFusedEnabled` is declared at
 `:5077–5078` (`!= "0"`, i.e. **default ON**), guarded at `:5129`, called at
