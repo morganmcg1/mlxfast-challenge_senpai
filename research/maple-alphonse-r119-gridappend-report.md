@@ -251,7 +251,24 @@ is a **documented pre-existing M4 artifact** and is cited, not re-derived.
 **(i) Where am I on (ii)?** <!-- FILL -->
 
 **(ii) Does merged head `206cf037c9de07f5e938c67f37bf863c5719741c` reproduce
-R114-E's −76.8 µs/step at SPLIT=0?** <!-- FILL from E arm -->
+R114-E's −76.8 µs/step at SPLIT=0?**
+
+A methodological note first, because it determines which number is admissible.
+R114-E's ranked −76.8 µs/step came from a **36-run ABBA on
+`./benchmark.sh --local-iterate`** (recorded at
+`research/maple-alphonse-r114-gatesp-split1-attrib.py:19`,
+`SPLIT0_SCORED_DELTA_US = -76.8   # 36-run ABBA on ./benchmark.sh --local-iterate`).
+There is **no `swift test` full-chain timing harness** in this repo — the only
+`swift test` target that touches the runtime is the *correctness* oracle
+`lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled`
+(`Tests/MLXFastTests/LagunaCorrectnessTests.swift:218`).
+
+So the layer-1 `decode_probe` E arm is a **different instrument** from the one
+that produced −76.8 and cannot on its own confirm or deny reproduction. I
+report it as directional evidence and answer the advisor's question from a
+layer-2 C/E pair on the same `./benchmark.sh --local-iterate` instrument.
+
+<!-- FILL: layer-1 E arm directional number; layer-2 C/E delta and verdict -->
 
 ## 11. Follow-ups I did not implement
 
