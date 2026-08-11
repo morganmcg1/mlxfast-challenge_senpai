@@ -42,7 +42,8 @@ struct RouteSorterPropertyTemporaryTests {
     private func check(keys: [UInt32], name: String, repetition: Int) {
         let rows = routeCount / topK
         let values = (0 ..< rows * width).map { Float(($0 * 17 + 3) % 1024) / 16 }
-        let x = MLXArray(values).reshaped(1, rows, width).asType(.bfloat16)
+        let input = MLXArray(values).reshaped(1, rows, width).asType(.bfloat16)
+        let x = MLX.expandedDimensions(input, axes: [-2, -3])
         let indices = MLXArray(keys).reshaped(1, rows, topK)
         let (sortedX, sidecar, inverse) = gatherSort(
             x: x, indices: indices, expertBoundsSidecar: true)
