@@ -1,0 +1,13 @@
+diff --git a/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp b/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+index a646a97f..cb10c1c7 100644
+--- a/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
++++ b/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+@@ -82,7 +82,7 @@ ensure_batch_contiguous(const array& x, metal::Device& d, const Stream& s) {
+ static bool darkbloom_steel_prefill_tile() {
+   static bool enabled = []() {
+     const char* value = getenv("DARKBLOOM_STEEL_PREFILL_TILE");
+-    return value == nullptr || atoi(value) != 0;
++    return value != nullptr && atoi(value) != 0;
+   }();
+   return enabled;
+ }

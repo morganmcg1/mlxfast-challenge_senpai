@@ -1,0 +1,14 @@
+diff --git a/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp b/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+index a646a97f..57dba4e7 100644
+--- a/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
++++ b/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+@@ -667,7 +667,8 @@ void steel_gemm_splitk_axpby_nax(
+   int split_k_partition_size = 4096;
+ 
+   if ((M + N) / 2 < 512 || K <= 4096) {
+-    bm = bn = 64;
++    bm = 32;
++    bn = 64;
+     bk = 256;
+     wm = wn = 2;
+   }
