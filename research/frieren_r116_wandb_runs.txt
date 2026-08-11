@@ -1,0 +1,17 @@
+R116-A shipped-defaults audit -- W&B runs
+project: wandb-applied-ai-team/mlxfast-maple
+
+stage: screen (9 arms x 3 blocks, ./benchmark.sh --local-iterate, M4, directional)
+group: r116a-screen
+  summary  q0vai430  https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/q0vai430
+  ctl      xjoeshrc  https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/xjoeshrc
+  ns0      fyntgl4t  https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/fyntgl4t
+  ns2      apf7ggow  https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/apf7ggow
+  qmvsc0   luk4k0oh  https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/luk4k0oh
+  qmvse0   fl36lkhe  https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/fl36lkhe
+  qse0     7q4p6r62  https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/7q4p6r62
+  sc0      z5kgtnpc  https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/z5kgtnpc
+  sd0      b5qelrba  https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/b5qelrba
+  sfd1     pywdzqmw  https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/pywdzqmw
+
+stage: confirm (4 arms x 18 blocks, ABBA order reversal) -- appended when complete

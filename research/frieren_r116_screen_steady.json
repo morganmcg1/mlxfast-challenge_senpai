@@ -1,0 +1,218 @@
+[
+ {
+  "arm": "ctl",
+  "block": 1,
+  "n": 15,
+  "steady_mean_us": 8218.400000000001,
+  "steady_median_us": 8201.0,
+  "within_sd_us": 68.04074409604037
+ },
+ {
+  "arm": "ns0",
+  "block": 1,
+  "n": 15,
+  "steady_mean_us": 8202.066666666668,
+  "steady_median_us": 8199.0,
+  "within_sd_us": 16.451081886553958
+ },
+ {
+  "arm": "ns2",
+  "block": 1,
+  "n": 15,
+  "steady_mean_us": 8205.266666666666,
+  "steady_median_us": 8199.0,
+  "within_sd_us": 32.82739854508867
+ },
+ {
+  "arm": "qmvsc0",
+  "block": 1,
+  "n": 15,
+  "steady_mean_us": 8268.933333333334,
+  "steady_median_us": 8262.0,
+  "within_sd_us": 67.56739140260173
+ },
+ {
+  "arm": "qmvse0",
+  "block": 1,
+  "n": 15,
+  "steady_mean_us": 8214.066666666668,
+  "steady_median_us": 8207.0,
+  "within_sd_us": 63.98266134181147
+ },
+ {
+  "arm": "qse0",
+  "block": 1,
+  "n": 15,
+  "steady_mean_us": 8210.866666666667,
+  "steady_median_us": 8215.0,
+  "within_sd_us": 66.98066529834934
+ },
+ {
+  "arm": "sc0",
+  "block": 1,
+  "n": 15,
+  "steady_mean_us": 8176.866666666666,
+  "steady_median_us": 8186.000000000001,
+  "within_sd_us": 38.04295817449875
+ },
+ {
+  "arm": "sd0",
+  "block": 1,
+  "n": 15,
+  "steady_mean_us": 8271.0,
+  "steady_median_us": 8269.0,
+  "within_sd_us": 160.07810593582118
+ },
+ {
+  "arm": "sfd1",
+  "block": 1,
+  "n": 15,
+  "steady_mean_us": 8265.066666666666,
+  "steady_median_us": 8248.0,
+  "within_sd_us": 55.35014087821347
+ },
+ {
+  "arm": "ctl",
+  "block": 2,
+  "n": 15,
+  "steady_mean_us": 8194.533333333333,
+  "steady_median_us": 8192.0,
+  "within_sd_us": 27.336178713687556
+ },
+ {
+  "arm": "ns0",
+  "block": 2,
+  "n": 15,
+  "steady_mean_us": 8233.066666666668,
+  "steady_median_us": 8203.0,
+  "within_sd_us": 75.79904510015417
+ },
+ {
+  "arm": "ns2",
+  "block": 2,
+  "n": 15,
+  "steady_mean_us": 8222.866666666667,
+  "steady_median_us": 8220.0,
+  "within_sd_us": 40.23478712803244
+ },
+ {
+  "arm": "qmvsc0",
+  "block": 2,
+  "n": 15,
+  "steady_mean_us": 8229.266666666666,
+  "steady_median_us": 8177.0,
+  "within_sd_us": 100.6489419905122
+ },
+ {
+  "arm": "qmvse0",
+  "block": 2,
+  "n": 15,
+  "steady_mean_us": 8200.933333333334,
+  "steady_median_us": 8198.0,
+  "within_sd_us": 34.87624379075814
+ },
+ {
+  "arm": "qse0",
+  "block": 2,
+  "n": 15,
+  "steady_mean_us": 8200.666666666666,
+  "steady_median_us": 8193.0,
+  "within_sd_us": 35.7704320567114
+ },
+ {
+  "arm": "sc0",
+  "block": 2,
+  "n": 15,
+  "steady_mean_us": 8198.199999999999,
+  "steady_median_us": 8192.0,
+  "within_sd_us": 55.55074899842238
+ },
+ {
+  "arm": "sd0",
+  "block": 2,
+  "n": 15,
+  "steady_mean_us": 8180.8,
+  "steady_median_us": 8170.0,
+  "within_sd_us": 47.139913328000794
+ },
+ {
+  "arm": "sfd1",
+  "block": 2,
+  "n": 15,
+  "steady_mean_us": 8253.4,
+  "steady_median_us": 8242.0,
+  "within_sd_us": 43.203505148805306
+ },
+ {
+  "arm": "ctl",
+  "block": 3,
+  "n": 15,
+  "steady_mean_us": 8198.133333333333,
+  "steady_median_us": 8188.000000000001,
+  "within_sd_us": 33.06674347149288
+ },
+ {
+  "arm": "ns0",
+  "block": 3,
+  "n": 15,
+  "steady_mean_us": 8222.933333333332,
+  "steady_median_us": 8216.0,
+  "within_sd_us": 33.04210877624111
+ },
+ {
+  "arm": "ns2",
+  "block": 3,
+  "n": 15,
+  "steady_mean_us": 8224.266666666666,
+  "steady_median_us": 8223.0,
+  "within_sd_us": 47.268936744466444
+ },
+ {
+  "arm": "qmvsc0",
+  "block": 3,
+  "n": 15,
+  "steady_mean_us": 8192.4,
+  "steady_median_us": 8189.999999999999,
+  "within_sd_us": 35.37917062744288
+ },
+ {
+  "arm": "qmvse0",
+  "block": 3,
+  "n": 15,
+  "steady_mean_us": 8217.466666666665,
+  "steady_median_us": 8218.0,
+  "within_sd_us": 43.24492813641618
+ },
+ {
+  "arm": "qse0",
+  "block": 3,
+  "n": 15,
+  "steady_mean_us": 8199.2,
+  "steady_median_us": 8182.0,
+  "within_sd_us": 40.46197509479018
+ },
+ {
+  "arm": "sc0",
+  "block": 3,
+  "n": 15,
+  "steady_mean_us": 8203.266666666666,
+  "steady_median_us": 8200.0,
+  "within_sd_us": 38.44749047479571
+ },
+ {
+  "arm": "sd0",
+  "block": 3,
+  "n": 15,
+  "steady_mean_us": 8163.6,
+  "steady_median_us": 8154.0,
+  "within_sd_us": 31.552224282019367
+ },
+ {
+  "arm": "sfd1",
+  "block": 3,
+  "n": 15,
+  "steady_mean_us": 8245.866666666667,
+  "steady_median_us": 8243.0,
+  "within_sd_us": 31.50479933204426
+ }
+]
