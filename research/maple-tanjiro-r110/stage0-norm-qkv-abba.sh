@@ -66,7 +66,7 @@ for (( n=0; n<${#ORDER}; n++ )); do
     *) echo "unknown arm ${arm}"; exit 2 ;;
   esac
   echo "=== run ${i} arm ${arm} t=$(date -u +%H:%M:%S)"
-  env "${envargs[@]}" python3 research/decode_probe.py \
+  env ${envargs[@]+"${envargs[@]}"} python3 research/decode_probe.py \
       --steps "${STEPS}" --dump-steps "${steps}" \
       --stderr "${OUT}/run${i}_${arm}.err" > "${log}" 2>&1
   rc=$?
