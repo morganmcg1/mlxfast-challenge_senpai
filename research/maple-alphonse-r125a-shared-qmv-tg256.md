@@ -564,6 +564,28 @@ default flip, i.e. the same content as `r125a-tg256-landing.patch`.
 | 3 | no environment variable needed for condition 1 | stage A probe `A_no_env` runs with the variable unset |
 | 4 | default-built binary ≈ explicit TG=256, two runs each | stage B: mirrored `p1_dflt, p2_e256, p3_e256, p4_dflt` at 400 steps behind the 40 C gate, plus a 200-step teacher-forced token compare of the new default against explicit `TG=64` |
 
-### Result
+### Result — stage A (conditions 1 and 3)
 
-RESULTS_PENDING
+The delivered artifact was staged exactly as specified and the log records it:
+the flip landed at `lagunaSharedSwiGLUQMVThreadgroupWidth`'s
+`else { return 256 }` (LRM:334), the fused guard count was **0**, and the width
+probe was spliced at LRM:7391.
+
+| probe | environment | width observed on the scored dispatch |
+| --- | --- | --- |
+| `A_no_env` | *(nothing set)* | **`R125A_TG=256`** |
+| `A_env64` | `DARKBLOOM_SHARED_QMV_TG=64` | `R125A_TG=64` |
+| `A_env128` | `DARKBLOOM_SHARED_QMV_TG=128` | `R125A_TG=128` |
+
+Each probe ran a 512-token prefill plus 4 decode steps and each emitted exactly
+one distinct width, so the dispatch is consistent across the whole invocation
+rather than only on the first call.
+
+**Condition 1 holds** — with `FUSED=0` the compiled default is 256.
+**Condition 3 holds** — no environment variable is involved in reaching it; the
+`A_no_env` row is the unset case. The override remains live for research use,
+which is what the other two rows show.
+
+### Result — stage B (condition 4)
+
+STAGE_B_PENDING
