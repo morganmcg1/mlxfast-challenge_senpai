@@ -403,6 +403,57 @@ failure and a stop; that condition did not occur, so these intervals stand.
 
 All 88 timed runs produced byte-identical token dumps.
 
+### 3.8b Rev2 — the startup memory profile this host was measured under
+
+Rev1's ranked cells above were all taken under the *low-memory* startup profile.
+`Sources/MLXFastModel/RuntimeStartupMemoryPolicy.swift:80-81,170-186` selects it
+unconditionally when physical memory is below 64 GiB, and this host has 48 GiB.
+The ranked M5 has 128 GB and takes the full branch
+(`Sources/MLXFastModel/LagunaRuntimeWeights.swift:358-398`). The two profiles
+differ on exactly the axis a dispatch-count change is expected to move:
+
+| variable | low-memory profile | full profile | overwrite |
+| --- | --- | --- | --- |
+| `MLX_MAX_OPS_PER_BUFFER` | 64 | 200 | 1 (low) / 0 (full) |
+| `MLX_MAX_MB_PER_BUFFER` | 128 | 200 | 1 (low) / 0 (full) |
+| `MLX_BFS_MAX_WIDTH` | unset (MLX stock 20) | 50 | 0 |
+
+A 64-op command buffer boundary is a hard, frequent flush; at 200 ops the same
+decode step may fit fewer buffers, so removing 39 dispatches per step can change
+the *number of command buffers* rather than only the encode cost inside one. That
+is the structural reason a sub-64 GiB host can be blind to this axis. frieren's
+R109 measured a 987 µs/step sign-flipping swing between the two profiles
+(`research/frieren_r109_FINAL_RESULT.md:36-70`, `:295-320`), with attenuation of
+887.9 µs/step at |t| = 17.
+
+**Guard.** A cell that merely exports `DARKBLOOM_STARTUP_MEMORY_PROFILE=full`
+proves nothing, so I added an env-gated readback
+(`DARKBLOOM_ENV_READBACK=1`, default OFF, `LagunaRuntimeModel.init`) that prints
+the three variables *as the worker process itself sees them* after weight
+loading has applied the policy. Measured on the same binary and host:
+
+| cell | `DARKBLOOM_STARTUP_MEMORY_PROFILE` | ops/buffer | MB/buffer | BFS width | low-memory notice |
+| --- | --- | --- | --- | --- | --- |
+| auto | `<unset>` | 64 | 128 | `<unset>` | present |
+| full | `full` | **200** | **200** | **50** | absent |
+
+The full cell reads 200 / 200 / 50, so it is a valid cell and not void. Two
+independent corroborations that the branch really changed: the low-memory notice
+("physical memory 48 GiB is below the 64 GiB full-profile minimum … set
+`DARKBLOOM_STARTUP_MEMORY_PROFILE=full` to opt out") is emitted only inside the
+low branch (`RuntimeStartupMemoryPolicy.swift:137-150`) and appears in **all 89**
+rev1 auto stderr files and in **zero** full-profile files; and `mlx_cache_gb`
+after load goes from 0.00 (low profile clears free warmup buffers and caps the
+allocator cache at 6 GiB) to 2.49 (full profile does not call `policy.apply()`,
+so neither the cap nor the cache clear runs).
+
+**Caveat I cannot remove.** `Vendor/mlx-swift/Source/Cmlx/mlx/mlx/utils.h:174-186`
+reads these variables through function-local `static` initialisers, so the
+effective value is latched at the first call inside the process. The readback
+proves the values are process-visible before the model is built; it does not by
+itself prove no earlier call already latched a different value. The absolute-wall
+comparison in §3.8c is the behavioural check on that.
+
 ### 3.9 Correctness gates (`--local-iterate`, both gate states)
 
 `research/edward_r119b_correctness.sh` ran the scored harness twice on this host
