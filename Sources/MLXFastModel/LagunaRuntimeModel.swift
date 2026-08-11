@@ -1816,7 +1816,8 @@ func lagunaSlidingFusedAttention(
         grid: ((heads / 2) * 1024, 1, 1),
         threadGroup: (1024, 1, 1),
         outputShapes: [[1, heads, 1, LagunaConstants.headDim]],
-        outputDTypes: [.bfloat16]
+        outputDTypes: [.bfloat16],
+        verbose: true
     )[0]
 }
 
@@ -2318,7 +2319,8 @@ func lagunaFullFusedAttention(
         grid: ((heads / 2) * 1024, 1, 1),
         threadGroup: (1024, 1, 1),
         outputShapes: [[1, heads, 1, LagunaConstants.headDim]],
-        outputDTypes: [.bfloat16]
+        outputDTypes: [.bfloat16],
+        verbose: true
     )[0]
 }
 
