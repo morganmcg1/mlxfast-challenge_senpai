@@ -2,7 +2,7 @@
 
 **For: maple-fern (sole submission driver).**
 From: maple-tanjiro, PR #692, branch
-`maple-tanjiro/r110-prefill-nax-arm-factory`, revision `r110-a-rev3`.
+`maple-tanjiro/r110-prefill-nax-arm-factory`, revision `r110-a-rev4`.
 Assignment base_sha: `30904ecbf180aa05d7ddf5cc957e83155fbfc6f4`.
 Campaign submission BASE_SHA: `1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7`.
 
@@ -781,4 +781,95 @@ realistic operand traffic, on the theory that its zero-traffic simplification wa
 a blind spot. Fact 2 says it is not — the real kernel also moves zero bytes
 through threadgroup memory, so the probe is **faithful** on that axis. The
 extension is now low value; I did not run it.
+
+
+---
+
+## 15. Revision rev4 — Stage 0 of the norm+QKV fusion, and what it settles
+
+**The arm queue in §0–§8 is unchanged by rev4.** The submitted surface still
+carries A2 and nothing else: `git diff --numstat e400de7d -- Sources Vendor
+benchmark.json Package.swift` is exactly `17  0  .../metal/matmul.cpp`. Scope and
+budget re-verified at this head (`assignment scope OK: 1 submitted path(s)`;
+`current=2681871/3000000 headroom=318129 growth=-301978/262144`). Everything
+below is research-only under `research/maple-tanjiro-r110/`.
+
+### 15.1 Outcome: `N-NORM-QKV-FUSION-BELOW-BAR`
+
+Full write-up: `research/maple-tanjiro-r110/N-NORM-QKV-FUSION-BELOW-BAR.md`.
+
+The fused RMSNorm+QKV path is reachable, exact (0 divergences in 35 independent
+200-step teacher-forced runs), and **slower** than the unfused path on the only
+bank where it runs. Stage 1 was gated on fusion being **+35.7 us/step faster**;
+the 32-run paired ABBA measures it **+17.2 us/step slower, 95 % [+9.0, +25.3]**,
+with a blocking-free Mann-Whitney check at z = +3.05. **Stage 1 not entered.**
+The direction's entire ceiling is ~77 us/step (~0.54 % of score) and this
+implementation is 1.3x underwater against it, so the miss is structural rather
+than a tuning gap.
+
+### 15.2 The one result here that generalises: the M4 rig is now calibrated
+
+R113 laid down a two-instrument law — *"bring me a paired M4 interval that
+excludes zero"* — but the rig's actual resolution had never been established on
+this branch. It now is, on a live contrast:
+
+| design | half-width | as % of score |
+|---|---|---|
+| 32 runs, blocked k=4 x 8 (~26 min) | +-8.1 us/step | **+-0.07 %** |
+| same data, widest blocking k=8 x 4 | +-20 us/step | +-0.17 % |
+
+So a ~26-minute paired ABBA does resolve the 0.25 % effect R113 calls
+campaign-winning, with a factor of 1.5–3.5 to spare. **The advisor's instrument
+claim is confirmed** — for arms that execute on this host.
+
+Two honest limits on that number. It was measured on the **int8 bank**, whose
+step is 11.6 ms against the shipped NVFP4 9.8 ms; absolute microsecond
+resolution should carry across, but the percentage figures above are computed at
+the campaign constant and would tighten slightly on the faster shipped step.
+And it is a **decode** contrast — prefill has its own noise, which §2 measured at
+a far worse 1.6–2.5 % run-to-run on this host. Nothing here says the rig resolves
+0.25 % of *prefill*.
+
+### 15.3 What it does not do: A2 is still unmeasurable here
+
+This calibration sharpens §2 rather than softening it. The rig works; it still
+cannot see A2, and the reason is structural, not statistical:
+
+- This host is `Mac16,11` M4 Pro, Apple GPU **generation 16**, so
+  `is_nax_available()` is **false** and **no `_nax` kernel is ever dispatched**.
+  A2 changes `_nax` tile selection only.
+- That is measured, not assumed: the A2 arm run and its
+  `DARKBLOOM_FUSED_NAX_NARROW_BN=0` control produce **byte-identical**
+  equivalence reports (§11). The knob is inert on this machine.
+
+An ABBA toggling that env var would therefore return a **structural zero** —
+tight, clean, and meaningless. Under R113's asymmetric rule that zero would
+refuse A2 for a reason that has nothing to do with its behaviour on M5. **A
+0.07 %-resolution instrument pointed at a kernel the host never runs is still
+blind.** The right move is an M5 paired rig, or an M5 submission decided on A2's
+bit-exactness-by-construction; it is not a local interval.
+
+**A1 is inert here too, and this is now proven rather than assumed.** A1's knob
+`darkbloom_expert_down_bn()` is read at `quantized.cpp:1396`, inside
+`gather_qmm_rhs_nax`, whose body spans **1339–1652** (the next top-level function
+is `gather_qmm_rhs` at 1653). That function has exactly **one** caller,
+`quantized.cpp:1671`, and it is guarded by
+`if (metal::is_nax_available() && transpose && ...)`. With
+`is_nax_available() == false` the whole 1339–1652 region — knob, `expert_aligned`
+gate and all — is unreachable on this host.
+
+Note this is *not* visible from A1's own gate text: the `expert_aligned`
+condition at `:1404-1407` mentions `group_size`, `bits`, shape and `M >= 64` but
+never mentions nax, so reading only the gate suggests A1 might be locally
+measurable. It is not; the nax check sits one frame up. **Nothing in this queue
+is measurable on this host**, and neither arm's own gate says so on its face.
+
+### 15.4 Follow-up worth more than Stage 1 was
+
+Section 10.2 of the write-up: the ~77 us/step prize does not require fusing into
+the QKV matvec at all. Folding each layer's input norm into the **previous**
+layer's residual-add epilogue — the shape
+`residual_rms_router_bf16_2048_rpg8_keys_v1_pf1` already uses — harvests the same
+40 dispatches with **no redundant-reduction exposure**, which is precisely the
+term that sank this attempt. That is the version of this idea worth assigning.
 
