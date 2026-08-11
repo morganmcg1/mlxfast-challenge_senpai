@@ -28,6 +28,10 @@ labelA="${2:?labelA}"
 envA="${3:?envA}"
 labelB="${4:?labelB}"
 envB="${5:?envB}"
+# Optional 6th arg: first draw index. An extension run must not overwrite the
+# logs of the pairs already banked, and the parser keys draws by index, so a
+# continuation passes the next free index instead of a new label.
+start="${6:-1}"
 out="research/fern-r109f-submit-ladder"
 mkdir -p "${out}"
 
@@ -54,10 +58,21 @@ run_draw() {
   echo "DRAW ${label} ${i} started=${started} rc=${rc} wall=${wall}s env=[${envspec}]"
 }
 
-echo "paired A/B: ${pairs} pairs, A=${labelA} [${envA}], B=${labelB} [${envB}]"
+last=$(( start + pairs - 1 ))
+echo "paired A/B: ${pairs} pairs (indices ${start}..${last}), A=${labelA} [${envA}], B=${labelB} [${envB}]"
 echo "git HEAD $(git rev-parse HEAD)"
-for i in $(seq 1 "${pairs}"); do
-  run_draw "${labelA}" "${envA}" "${i}"
-  run_draw "${labelB}" "${envB}" "${i}"
+for i in $(seq "${start}" "${last}"); do
+  # ABBA within each even/odd pair: A,B then B,A. A plain A,B,A,B interleave
+  # cancels drift only to first order across a pair boundary; alternating the
+  # within-pair order makes each consecutive 4-draw block cancel a linear trend
+  # exactly, which matters here because the between-draw thermal drift turned
+  # out to be ~7x larger than the within-window spread of a short 3-draw run.
+  if [ $(( i % 2 )) -eq 1 ]; then
+    run_draw "${labelA}" "${envA}" "${i}"
+    run_draw "${labelB}" "${envB}" "${i}"
+  else
+    run_draw "${labelB}" "${envB}" "${i}"
+    run_draw "${labelA}" "${envA}" "${i}"
+  fi
 done
 echo "paired A/B complete"
