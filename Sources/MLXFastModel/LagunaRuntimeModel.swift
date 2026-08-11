@@ -1159,7 +1159,7 @@ dense[index] = as_type<bfloat>(bits);
     ensureRowContiguous: true
 )
 
-private func lagunaExpandRouter(_ data: MLXArray, offsets: MLXArray) -> MLXArray {
+func lagunaExpandRouter(_ data: MLXArray, offsets: MLXArray) -> MLXArray {
     let count = LagunaConstants.numExperts * LagunaConstants.hiddenSize
     return lagunaExpandRouterKernel(
         [data, offsets],
