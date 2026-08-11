@@ -411,6 +411,19 @@ measurement; the shipped-wall column is the b5/b4 harness, not the profile.
   threadgroup width, whose τ is assumed ≈ 0 from PR #7 rather than measured. That
   assumption is conservative — it makes my own candidate look worse. The
   fusion-only residue (+8.73 µs) has an interval covering both signs.
+- **Why I did not buy a tighter `N−S`.** The fusion-only residue is the one
+  component whose τ is plausibly ~1, it sits at ~0.06–0.08% (i.e. astride the
+  0.07% bar), and the preregistered rule "mode 3 only if `S−N` clears zero" turns
+  on it, so I started a dedicated 24-replicate-per-arm S-vs-N block on a quiet
+  host and then **cancelled it after 2 slots**, because tightening it cannot
+  change a decision: mode 3 is only reachable *through* the ns8r1 geometry, and a
+  threadgroup-geometry change is out of headline scope by instruction (PR #7,
+  +7.32% M4 → ~0% M5). A significant `N−S` would therefore buy a ~0.06% arm
+  bundled with a change I am told not to headline — so the residue is left
+  honestly wide rather than pursued. The two completed slots do corroborate the
+  b5 S arm across sessions (fresh medians 8210 / 8215 µs vs b5's 8212.96 µs,
+  `n = 2`), which is a useful reminder that *within*-arm reproducibility here is
+  far better than the *across*-arm single-run drift documented above.
 - **Smallest useful next action:** if an M5 datapoint on threadgroup *width* (as
   opposed to tiling shape) is wanted, `DARKBLOOM_NORM_FUSED_GATE_SP=4` is a
   zero-risk one-env-var probe: bit-exact, +43.23 µs/step on M4. Flagged for
