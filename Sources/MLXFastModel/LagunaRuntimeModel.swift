@@ -319,6 +319,14 @@ let lagunaSharedSwiGLUQMVThreadgroup256Enabled =
 let lagunaSharedSwiGLUQMVRows1SimdgroupsPerTile =
     (lagunaSharedSwiGLUQMVRows1Enabled && lagunaSharedSwiGLUQMVThreadgroup256Enabled) ? 8 : 2
 
+// The two packings compile different sources under the same kernel family, so the
+// name carries the packing. Without this a name-keyed kernel cache could serve a
+// stale 2-simdgroup binary to an 8-simdgroup dispatch, which reads rows 0..255
+// twice and leaves 256..511 unwritten. Research tooling matches this family by
+// prefix, so a suffix is safe.
+let lagunaSharedSwiGLUQMVRows1NameSuffix =
+    lagunaSharedSwiGLUQMVRows1SimdgroupsPerTile == 8 ? "_tg256" : ""
+
 
 
 
@@ -7237,7 +7245,7 @@ if (lane == 0) {
 }
 
 private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
-    name: "laguna_shared_nvfp4_swiglu_qmv_rows1_bf16_v1",
+    name: "laguna_shared_nvfp4_swiglu_qmv_rows1\(lagunaSharedSwiGLUQMVRows1NameSuffix)_bf16_v1",
     inputNames: ["input", "fused_weight", "fused_scales"],
     outputNames: ["activated"],
     source: lagunaSharedSwiGLUQMVRows1Source(halved: false),
@@ -7246,7 +7254,8 @@ private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
 )
 
 private let lagunaSharedSwiGLUQMVRows1HalvedKernel = MLXFast.metalKernel(
-    name: "laguna_shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1",
+    name:
+        "laguna_shared_nvfp4_swiglu_qmv_rows1_halved\(lagunaSharedSwiGLUQMVRows1NameSuffix)_bf16_v1",
     inputNames: ["input", "fused_weight", "fused_scales"],
     outputNames: ["activated"],
     source: lagunaSharedSwiGLUQMVRows1Source(halved: true),
@@ -7261,7 +7270,8 @@ private let lagunaSharedSwiGLUQMVRows1HalvedKernel = MLXFast.metalKernel(
 
 
 private let lagunaSharedSwiGLUQMVRows1WideKernel = MLXFast.metalKernel(
-    name: "laguna_shared_nvfp4_swiglu_qmv_rows1_halved_wide_bf16_v1",
+    name:
+        "laguna_shared_nvfp4_swiglu_qmv_rows1_halved_wide\(lagunaSharedSwiGLUQMVRows1NameSuffix)_bf16_v1",
     inputNames: ["input", "fused_weight", "fused_scales"],
     outputNames: ["activated"],
     source: """
