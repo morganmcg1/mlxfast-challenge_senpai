@@ -126,6 +126,44 @@ def main() -> int:
         print(f"  relative       : {-100.0 * med / base:+.4f} % decode speedup")
         print(f"  implied phi    : {(base / (base + med)) ** 0.75:.6f} "
               f"(decode-only, prefill held at 1.0)")
+
+    # ---- same-arm null ----------------------------------------------------
+    # Each arm is run twice per block, so the within-block early-slot minus
+    # late-slot delta of the reference arm is a labelled contrast over
+    # byte-identical work. Its spread is the instrument's noise floor and
+    # needs no extra machine time.
+    print()
+    print("-" * 78)
+    print(f"SAME-ARM NULL  {ref} late-run - {ref} early-run (byte-identical work)")
+    print("-" * 78)
+    Dn = []
+    for b in blocks:
+        rs = sorted(runs[(b, ref)])
+        if len(rs) != 2:
+            continue
+        per = {r: [] for r in rs}
+        for path in args.csv:
+            with open(path) as fh:
+                for rec in csv.DictReader(fh):
+                    if (rec["arm"] != ref or int(rec["block"]) != b
+                            or int(rec["step"]) <= trim):
+                        continue
+                    r = int(rec["run"])
+                    if r in per:
+                        per[r].append(float(rec["ms"]))
+        d = (median(per[rs[1]]) - median(per[rs[0]])) * 1000.0
+        Dn.append(d)
+        print(f"  block {b:<3d} run{rs[0]}={median(per[rs[0]]) * 1000:9.2f}  "
+              f"run{rs[1]}={median(per[rs[1]]) * 1000:9.2f}  D={d:+8.2f} us")
+    if Dn:
+        n = len(Dn)
+        rng = random.Random(seed + 1)
+        boot = sorted(median([Dn[rng.randrange(n)] for _ in range(n)])
+                      for _ in range(B))
+        print(f"\n  median null D  = {median(Dn):+8.2f} us/token")
+        print(f"  null CI95      = [{boot[int(0.025 * (B - 1))]:+8.2f}, "
+              f"{boot[int(0.975 * (B - 1))]:+8.2f}] us/token")
+        print(f"  max |null D|   = {max(abs(d) for d in Dn):8.2f} us/token")
     return 0
 
 
