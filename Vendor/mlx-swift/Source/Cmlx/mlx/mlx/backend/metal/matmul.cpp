@@ -219,6 +219,9 @@ void steel_matmul_regular_axpby_nax(
 
     bm = 64;
     wm = 2;
+    if (N <= 1024) {
+      bm = 32;
+    }
   }
 
   std::ostringstream kname;
