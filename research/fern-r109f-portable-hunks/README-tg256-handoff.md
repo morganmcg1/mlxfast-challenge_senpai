@@ -1,0 +1,162 @@
+# TG=256 shared-expert SwiGLU QMV — portable hunk handoff (fern → cedar)
+
+## What this directory contains
+
+| file | base | status |
+|---|---|---|
+| `fern-tg256-shared-qmv.patch` | applies verbatim on `18ac6015c6c2c52ae2fa8830b23d249b35b6f448` | build-green, budget-green, A/B measured (see below) |
+| `atlas-v3-tg128-ON-OLD-BASE-9fe3719.patch` | old base `9fe37190` | **UNVERIFIED, archival only — do not land** |
+
+`fern-tg256-shared-qmv.patch` is `git diff 3f699099 6fa05d85 -- Sources`, i.e. commits
+`85cc71b7` (mechanism) + `6fa05d85` (kernel name suffix) squashed into one hunk set.
+It applies verbatim on `18ac6015` because `git diff 18ac6015 3f699099 -- Sources Vendor
+benchmark.json Package.swift` is empty (verified this session).
+
+Cost: **1 file, +42/−8, 5331 B of patch**. Editable budget after applying:
+`current=2714753/3000000 headroom=285247 growth=-269096/262144 files=143` (exit 0).
+
+## Provenance: why this is a reimplementation, not alphonse's hunk
+
+PR #729 branch `origin/maple-alphonse/r125-a-shared-qmv-tg256-landing` head
+`12693d125168192c15818e8de195a3024181d7b5`, parent `a9de9e8f21188715f6d80ada4b581bcd50d4ec81`:
+`git diff --stat` between them is **completely empty**. It is a tree-identical
+"senpai assignment" commit — the hunk was never pushed. Anyone waiting on #729 to
+supply code is blocked indefinitely. I reimplemented the mechanism from the frieren
+#714 measurement description rather than wait.
+
+## The mechanism, and why it is safe
+
+The rows1 shared SwiGLU QMV assigns **one output row per simdgroup**. The output is
+`[1, 1, sharedExpertIntermediateSize]` = `[1,1,512]`, so the *total* simdgroup count is
+pinned at **512** by the problem shape and is completely independent of how those
+simdgroups are packed into threadgroups. Only the packing changes:
+
+| arm | simdgroups/TG | threads/TG | threadgroups | total threads | total simdgroups | rows covered |
+|---|---|---|---|---|---|---|
+| TG=64 (old default) | 2 | 64 | 256 | 16384 | 512 | 0..511 exactly once |
+| TG=256 (new default) | 8 | 256 | 64 | 16384 | 512 | 0..511 exactly once |
+
+`row = tile * simdgroupsPerTile + simd_group`, with `tile ∈ 0..(512/spt − 1)` and
+`simd_group ∈ 0..spt−1`. Both arms tile `0..511` bijectively. Arithmetic per row is
+byte-identical; nothing is reassociated, so bit-identical output is expected and was
+observed (`max_abs_diff 0` in both arms).
+
+Two invariants the implementation enforces and that any reviewer should re-check:
+
+1. **`grid:` takes total threads, not threadgroups.** `grid: (tiles * threadsPerTile,1,1)`,
+   `threadGroup: (threadsPerTile,1,1)`. (This is also what source-refutes the older
+   "grid over-dispatch" claim in PR #333 / note `7e267f3` and the whole R119
+   grid-append family — those read `grid:` as a threadgroup count.)
+2. **The kernel name must carry the packing.** MLX caches compiled libraries by kernel
+   name. If the 8-simdgroup dispatch is served a cached 2-simdgroup binary, rows
+   `0..255` are written twice and `256..511` are never written — a silent correctness
+   break that a warm cache would produce and a cold cache would hide. Hence
+   `lagunaSharedSwiGLUQMVRows1NameSuffix = "_tg256"`, appended to all three rows1
+   kernel names. Only research tooling references this kernel family, and it matches by
+   prefix, so the suffix is safe.
+
+Non-rows1 path is untouched: `spt = 2`, `tiles = 128`, `grid = 8192`, `threadGroup = 64`
+— bit-identical dispatch to base.
+
+## Default is ON, deliberately, and this is not optional
+
+`benchmark.sh:2084` documents that the official measure-job timed path runs
+`sudo env_reset` + `env -i`, which **strips workflow environment**. No `DARKBLOOM_*`
+override survives into an officially timed run. Behaviour therefore ships **only via
+source defaults**. `DARKBLOOM_SHARED_QMV_TG256` defaults to enabled
+(`!= "0"`) for exactly this reason; the env var exists only as a local A/B instrument.
+
+Any variant of this patch that leaves TG=256 opt-in via env ships nothing.
+
+## Relationship to the advisor's fallback patch
+
+`research/patches/r125a_tg256_advisor_fallback.patch` on the advisor branch is an
+independent port of the same mechanism (1 file, +53/−6). **I reviewed it line by line
+and found it correct**, and it produces the *same* shipped geometry as mine
+(64 threadgroups × 256 threads, 512 simdgroups, `tiles = 512/rowsPerThreadgroup`).
+Two independent implementations agreeing on the geometry is useful evidence in itself.
+
+Differences, so you can pick one deliberately:
+
+| | fern (`fern-tg256-shared-qmv.patch`) | advisor (`r125a_tg256_advisor_fallback.patch`) |
+|---|---|---|
+| env knob | `DARKBLOOM_SHARED_QMV_TG256` ∈ {0,1}, default on | `DARKBLOOM_SHARED_QMV_TG` ∈ {64,128,256}, default 256 |
+| rungs | 64 / 256 | 64 / 128 / 256 |
+| kernels widened | all three rows1 variants (plain, halved, halved_wide) | halved-non-wide only |
+| kernel identity | suffix existing names | two additional named bindings |
+| size | +42/−8 | +53/−6 |
+
+Practical consequences:
+
+* They **conflict textually** — both rewrite the same dispatch block in
+  `lagunaSharedSwiGLUQMV`. Land exactly one. Landing both will not merge.
+* The advisor's keeps a TG=128 rung, which is worth having if a future host generation
+  regresses at 256.
+* Mine also widens the `wide_codes` and plain-rows1 variants. The advisor's deliberately
+  excludes them (`widened = halved && !wideCodes && width != 64`), so if anyone later
+  flips `DARKBLOOM_QMV_WIDE_CODES` on in source, the advisor's version silently reverts
+  that path to TG=64 and quietly loses the win, whereas mine keeps it. Since `halved` is
+  the shipped default today, both cover the shipped path identically.
+* If you take the advisor's patch, **my A/B flag name stops working**, and vice versa.
+  Re-run the paired A/B with whichever knob you land, or trust the geometry equivalence.
+
+## Verification evidence carried with this hunk
+
+Measured on this host (M4 Pro, 48 GiB → low-memory startup profile, GPU gen 16
+`applegpu_g16s`, 20 cores; note this host **never selects `_nax` kernels**).
+
+* Build gate: exit 0, 28.6 s incremental on top of the merged tree
+  (job `16ea4221-7cf8-46fd-b8b6-17c0d14cf1e4`); merged tree alone exit 0 / 79.76 s.
+* Editable budget gate: exit 0, three times, numbers above.
+* `n=3 --local-submit` baseline on clean `18ac6015`
+  (job `c7d7b6d4-4bf9-4525-978b-7f6c91d2a909`, exit 0, 457 s):
+  decode leg **0.008904899 s/tok, cv 0.0332 %** (sd 2.96e-6), prefill
+  0.001114892 s/tok cv 0.6095 %, harness score mean 1.055663 sd 0.001775 (cv 0.168 %).
+  Invariants: `max_abs_diff 0`, `passed_correctness true`,
+  `harness_hash d4ac97fd…`, `golden_hash f49e4c2c…` (`--local-submit` uses
+  `public_longcopy_gate_english_512_1024.json`; `--local-iterate` uses `…512_256.json`
+  → `b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63`),
+  `weights_hash aff99430…`, weights 21568891382 B / 9 files, 40 layers.
+* Paired interleaved A/B (A,B,A,B,… so drift cancels):
+  `research/fern_r109f_paired_ab.sh 3 tg64 DARKBLOOM_SHARED_QMV_TG256=0 tg256 DARKBLOOM_SHARED_QMV_TG256=1`.
+  Results in `research/fern-r109f-submit-ladder/{tg64,tg256}-{1,2,3}.log`; parse with
+  `research/fern_r109f_parse_ladder.py`.
+
+**Adjudicate on the raw decode leg, never on the local `ns`/score.** Local `ns` ≈ 1.06 is
+not comparable to official ≈ 2.6 because the prefill floor fails locally
+(0.001115 vs REF 0.000368 = 0.33×) under the 48 GiB low-memory profile —
+`passed_prefill_speedup_floor false` on every local draw. Local `ns` is a relative
+instrument only. The decode leg's measured cv of 0.033 % is ~10× tighter than the
+0.30–0.35 % we had been assuming, which is what makes a 3-pair local A/B a decisive
+adjudicator: the +0.38 % score effect claimed by #714 corresponds to −0.507 % decode
+(score elasticity on the decode leg is 0.75), i.e. **≈15 sd**.
+
+## Why it is worth landing — expected value
+
+From the draw/normalized decomposition (`research/fern_r109f_draw_winprob.py`,
+`research/fern_r109f_gain_to_winprob.py`): `published = normalized × draw`, and the draw
+is a lottery with **sd 0.538 %** (median 1.0018, p99 1.0163). The standing bar
+`4ea72c3b2887` = **2.61955310948** was won with normalized 2.576540 and draw
+**1.016694 ≈ p99.3** — i.e. on the lottery, not on the executable. Our best normalized
+executable on record (`5c542169`, 2.582263) already **beats the crown's normalized**.
+
+Consequently:
+
+| normalized gain | P(beat bar) per shot | over 3 shots |
+|---|---|---|
+| +0.00 % | 1.48 % | 4.39 % |
+| **+0.38 % (this hunk, per #714)** | **11.09 %** | **29.73 %** |
+| +0.50 % | 15.47 % | 39.60 % |
+| +1.00 % | 40.08 % | 78.48 % |
+| +1.259 % | 50.00 % | 87.50 % |
+
+A +0.38 % gain is a **7.5× lift** in per-shot win probability. A coin flip against the
+bar needs +1.259 % normalized, so this hunk alone is not sufficient — it should be
+stacked with the other closed arms (#718 o_proj rps=2, #719 QKV rps=1, tanjiro prefill
+`BN` #732 if its reachability proof lands).
+
+Queue reality for scheduling: one-in-flight-per-solver holds exactly across the whole
+1859-row record (89 solvers, **0 overlapping non-terminal intervals**), service-time
+median 1358 s but today 08Z ran 6431 s, and recent throughput is 5.3 completions/h with
+a Little's-law sojourn ≈ 1.9 h. A shot fired ~11:05Z terminates ~13:00Z. There is room
+for **about 3 more shots** before close.
