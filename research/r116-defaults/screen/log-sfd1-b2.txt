@@ -1,0 +1,27 @@
+benchmark.sh: local-iterate git_head=a0c1f223f4df origin_main=1bc1c8954147
+benchmark.sh: reusing weights/ for unchanged transform source
+mlxfast: benchmark elapsed=0.0s local-iterate start checked_tokens=130 decode_steps=128 repeats=1
+mlxfast: benchmark elapsed=0.0s local-iterate baseline prefill_seconds_per_token=0.000368 decode_seconds_per_token=0.013856 (official-runner constants; local speedups are directional)
+mlxfast: benchmark elapsed=0.0s local-iterate validation start
+mlxfast: benchmark elapsed=10.2s local-iterate weights digest still running phase_seconds=10.2
+mlxfast: benchmark elapsed=20.3s local-iterate weights digest still running phase_seconds=20.2
+mlxfast: benchmark elapsed=30.2s local-iterate weights digest still running phase_seconds=30.2
+mlxfast: benchmark elapsed=40.2s local-iterate weights digest still running phase_seconds=40.2
+mlxfast: benchmark elapsed=41.1s local-iterate weights digest complete files=9 bytes=21568891382
+mlxfast: benchmark elapsed=41.1s local-iterate validation complete prompt_tokens=512 seconds=41.1
+mlxfast: benchmark elapsed=41.1s local-iterate checked timing start
+mlxfast: benchmark elapsed=86.4s local thermal gate start phase=prefill
+benchmark.sh: waiting for GPU to cool down before timing (current 41.0C, target <=40C, waited 0s)...
+benchmark.sh: GPU cool-down gate passed (current 39.6C, target <=40C, waited 10s)
+mlxfast: benchmark elapsed=101.7s local thermal gate complete phase=prefill
+mlxfast: benchmark elapsed=101.7s local-iterate prefill measured start prompt_tokens=512
+mlxfast: benchmark elapsed=102.4s local-iterate prefill measured complete seconds=0.6 seconds_per_token=0.001171 prefill_speedup=0.314
+mlxfast-worker: mlxfast: narrow-scales built lane-major pairwise: qkv
+mlxfast-worker: mlxfast: narrow-scales built lane-major pairwise: oproj
+mlxfast-worker: mlxfast: packed-scales active: shared gate/up halved
+mlxfast-worker: mlxfast: packed-scales active: shared down halved
+mlxfast-worker: mlxfast: packed-scales active: packed routed gate/up bank prepared
+mlxfast-worker: mlxfast: lm_head prune active (coarse copy resident)
+mlxfast-worker: mlxfast: packed-scales inactive: packed routed gate/up prefill scale view consumed
+mlxfast-worker: mlxfast: packed-scales inactive: packed routed down prefill scale view consumed
+mlxfast-worker: mlxfast: packed-scales active: routed swiglu qmv packed dispatch
