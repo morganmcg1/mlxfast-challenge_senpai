@@ -240,9 +240,81 @@ hardware peak, which should have been caught as an impossibility. Written up as 
 
 ---
 
-## 5. F7 — o_proj activation re-read geometry
+## 5. F7 — o_proj geometry: the byte model is falsified by sign
 
-<!--F7-BODY-->
+Stage 0 left exactly one unpinned term in the family, and it was not bytes. `o_proj` is
+the geometric outlier of the decode GEMV pool: `results_per_simdgroup = 4`,
+`num_simdgroups = 2`, so a 2048-row projection dispatches only **256 threadgroups** at
+512 B/thread, against QKV's 5120 threadgroups at 32 B/thread — on a 20-core GPU.
+
+### 5.1 The knob
+
+New file `Sources/MLXFastModel/LagunaOProjGeometry.swift` (edward's territory untouched)
+exposes `DARKBLOOM_OPROJ_ROWS_PER_SIMDGROUP ∈ {1,2,4,8,16}` (default 4 = shipped) and
+`DARKBLOOM_OPROJ_SIMDGROUPS ∈ {2,4}` (default 2 = shipped), plus 12 anchored edits in
+`LagunaRuntimeModel.swift` that are **inert at default gate values** — the kernel-name
+suffix is empty at `rps=4, ns=2`, so every shipped name and every atlas string built
+from it is unchanged. The suffix exists at all because of **rule 33**: MLX caches
+compiled pipelines by function name, and a geometry sweep whose arms share one name
+silently measures the first-built geometry every time.
+
+**Bit-exact by construction**: changing `results_per_simdgroup` only decides *which*
+simdgroup owns *which* output row. For a fixed row the accumulation is still 32 lanes ×
+16 serial FP32 adds over the same K-block order, closed by the same `simd_sum`
+(`LagunaRuntimeModel.swift:4348–4416`). Confirmed empirically — see 5.2.
+
+### 5.2 Pre-flight (n=1 per arm, unpaired) — `research/data/nezuko-r117-stage1-preflight.tsv`
+
+| arm | rps | ns | simdgroups | threadgroups | Δ act MB/step | µs/step | Δ vs C |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| `C` | 4 | 2 | 512 | 256 | 0 | 8989.90 | 0 |
+| `R1` | 1 | 2 | 2048 | 1024 | **+943.72** | 8924.73 | **−65.17** |
+| `R8` | 8 | 2 | 256 | 128 | **−157.29** | 9090.93 | **+101.03** |
+| `N4` | 4 | 4 | 512 | **128** | **0** | 9012.83 | **+22.93** |
+
+**All four `passed=true`; exactly one distinct golden hash** (`f49e4c2cbc0d3ceee9…`),
+so the bit-exactness argument holds empirically across the whole geometry family.
+
+**The byte model is falsified by sign.** At the Stage 0b τ = 0.780 a pure byte model
+predicts `R1` at **+2868 µs/step** and `R8` at **−478 µs/step**. Observed: **−65.2** and
+**+101.0**. Both inverted. Adding 944 MB/step of activation re-reads made the model
+*faster*; removing 157 MB/step made it *slower*.
+
+The `N4` control does the attribution:
+
+- `N4` vs `C` — same simdgroups, same bytes, half the threadgroups: **+22.9 µs**
+  (byte-free packaging cost)
+- `R8` vs `N4` — same threadgroups, half the simdgroups *and* 157 MB fewer:
+  **+78.1 µs** (parallelism loss beats the byte saving outright)
+
+**Correction to my own Stage 0 framing:** the "90.9 % / 83.4 % of peak" figures I
+reported for the o_proj kernels are **not headroom a byte reduction can collect**. This
+kernel is occupancy-limited, not bandwidth-limited.
+
+### 5.3 `B_act` is not identifiable — and I am not laundering a bundled coefficient
+
+Activation traffic here is *exactly* `simdgroups × in_vec_size × 2 × calls`, so bytes and
+the parallelism knob are collinear with correlation **1.0** along the `ns=2` ladder. A
+regression of Δ on bytes returns "bytes + parallelism, bundled", not `B_act` — the same
+failure mode as the `OP` rung in §2.5. I pre-registered this limitation, and the
+alternative fit, in `research/nezuko-r117-stage1-amendment12-identifiability.md`
+**before the first paired observation existed** (committed 04:56:31Z; ladder launched
+04:54:58Z; first run completed 04:57:30Z).
+
+The two terms are separable only by *functional form* — bandwidth is linear in bytes,
+occupancy saturates like `log2(simdgroups)` — so amendment 12 fits
+
+```
+delta_us = a * log2(sg/512) + tau_act * 3.8956 * (act_MB - 314.57)
+```
+
+on the `ns=2` arms, and **tests it out of sample**: fitted on the pre-flight singles
+alone it gives `a = −135.3 µs/doubling`, `tau_act = +0.056`, and predicts the
+never-yet-measured `R2` arm at **−66.8 µs/step**.
+
+### 5.4 Ladder result (5 arms × 5 blocks = 25 runs, pre-registered)
+
+<!--F7-LADDER-->
 
 ---
 
