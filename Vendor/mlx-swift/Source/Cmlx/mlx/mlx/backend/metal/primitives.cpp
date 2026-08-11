@@ -1,7 +1,6 @@
 // Copyright © 2023-2024 Apple Inc.
 #include <algorithm>
 #include <cassert>
-#include <cstdio>
 #include <numeric>
 #include <sstream>
 
@@ -127,11 +126,6 @@ void ArgReduce::eval_gpu(const std::vector<array>& inputs, array& out) {
     thread_group_size =
         (thread_group_size + simd_size - 1) / simd_size * simd_size;
     assert(thread_group_size <= kernel->maxTotalThreadsPerThreadgroup());
-    if (reduce_type_ == ArgReduce::ArgMax && in.dtype() == bfloat16 &&
-        axis_size == 100352 && axis_stride == 1 && ndim == 0 &&
-        thread_group_size == 1024) {
-      std::fprintf(stderr, "MLXFAST_ARGMAX_FIXED_HIT\n");
-    }
 
     auto gd = get_2d_grid_dims(out.shape(), out.strides());
     MTL::Size grid_dims = MTL::Size(thread_group_size, gd.width, gd.height);
