@@ -1,7 +1,9 @@
 // Copyright © 2023-2024 Apple Inc.
 #include <algorithm>
+#include <cstdint>
 #include <deque>
 #include <future>
+#include <iostream>
 #include <numeric>
 #include <set>
 #include <sstream>
@@ -179,9 +181,15 @@ array eval_impl(std::vector<array> outputs, bool async) {
 
     // Build the tape in BFS order with a width limit
     int max_width = env::bfs_max_width();
+    size_t width_limit_hits = 0;
+    size_t peak_pending = 0;
     dfs = std::stack<std::pair<std::reference_wrapper<array>, int>>();
     tape.push_back(synchronizer);
     for (int i = 0; !cache.empty() && (i < tape.size() || !dfs.empty());) {
+      if (i < tape.size()) {
+        peak_pending =
+            std::max(peak_pending, tape.size() - static_cast<size_t>(i));
+      }
       auto& a = (i >= tape.size()) ? dfs.top().first.get() : tape[i];
       int j = 0;
       if (i >= tape.size()) {
@@ -199,6 +207,7 @@ array eval_impl(std::vector<array> outputs, bool async) {
         // If the width limit is exceeded, push the array on the stack
         // and go down a level
         if ((tape.size() - i) >= max_width) {
+          width_limit_hits++;
           dfs.emplace(a, j);
           break;
         }
@@ -221,6 +230,23 @@ array eval_impl(std::vector<array> outputs, bool async) {
 
         tape.push_back(in);
       }
+    }
+
+    if (env::get_var("DARKBLOOM_TRACE_BFS", 0) && tape.size() >= 100) {
+      std::uint64_t schedule_hash = 1469598103934665603ULL;
+      for (const auto& arr : tape) {
+        for (const char* c = arr.primitive().name(); *c != '\0'; ++c) {
+          schedule_hash ^= static_cast<unsigned char>(*c);
+          schedule_hash *= 1099511628211ULL;
+        }
+        schedule_hash ^= arr.inputs().size();
+        schedule_hash *= 1099511628211ULL;
+      }
+      std::cerr << "mlxfast-bfs-trace width=" << max_width
+                << " nodes=" << tape.size()
+                << " width_limit_hits=" << width_limit_hits
+                << " peak_pending=" << peak_pending
+                << " schedule_hash=" << schedule_hash << std::endl;
     }
   }
 
