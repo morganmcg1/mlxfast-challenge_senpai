@@ -424,7 +424,7 @@ public func gatherSort(
 ) -> (MLXArray, MLXArray, MLXArray) {
     let m = indices.dim(-1)
     if indices.size == 4096,
-        ProcessInfo.processInfo.environment["F322_ROUTE_KEYS_CAPTURE"] == "1",
+        ProcessInfo.processInfo.environment["DARKBLOOM_F322_ROUTE_KEYS_CAPTURE"] == "1",
         f322RouteCaptureState.take()
     {
         let bytes = indices.asArray(UInt32.self).map { UInt8(truncatingIfNeeded: $0) }
