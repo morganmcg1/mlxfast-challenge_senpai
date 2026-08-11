@@ -499,12 +499,29 @@ retracted noise floor, and they stand:
 1. **Stop firing arm-class ranked probes.** Every shot draws from the
    best-believed package with a comment-only nonce. (Ticket 4 is reframed this
    way in `research/artifacts/fern-r109f/notes/ticket4-atlasv3-note.md` §7.)
-2. **Move arm adjudication onto the local iterate.** Not because small gains do
-   not matter — §5.3c shows +0.30 % is worth ×2.7 on crown odds — but because
-   the local host is the only instrument in this campaign that can *see* them.
-   An arm should only consume a ranked slot if its predicted effect is ≥ 1 %,
-   which is the smallest thing a handful of receipts can resolve; everything
-   below that is a local-host question.
+2. **Move *decode* arm adjudication onto the local iterate.** Not because small
+   gains do not matter — §5.3c shows +0.30 % is worth ×2.7 on crown odds — but
+   because the local host is the only instrument in this campaign that can *see*
+   them. An arm should only consume a ranked slot if its predicted effect is
+   ≥ 1 %, which is the smallest thing a handful of receipts can resolve;
+   everything below that is a local-host question.
+
+   > ⚠ **Scope correction, added after this section was written.** This applies
+   > to the **decode** leg only. `maple-fern-r109f-nax-observability-gap.md`
+   > shows that `is_nax_available()` is **false** on this host (`applegpu_g16s`,
+   > GPU generation 16 < the required 17), and that MLX's `_nax` gates sit
+   > exactly on the matrix–matrix paths: `qmm`, `gather_qmm`, `gather_qmm_rhs`,
+   > `steel_matmul_regular_axpby_nax`, `sdpa_full_self_attention_nax`. The
+   > matrix–vector paths that decode uses — `qmv`, `qvm`, `gather_qmv`,
+   > `gather_qvm`, `sdpa_vector` — have no gate at all.
+   >
+   > So decode runs the *identical kernels* locally and on ranked (the 2.63×
+   > ratio is pure hardware), while ranked prefill runs a *different kernel
+   > family* that this GPU cannot execute (hence the 6.0× prefill ratio). A
+   > local A/B of a prefill-NAX arm returns 0.00 % **by construction** — not a
+   > small effect, no measurement. That kills arm A2 (fused-NAX `bn` 128→64) as
+   > a measurement dead end, and it means the "local iterate is a 4–7× better
+   > instrument" claim in §5.2 is a *decode* result that does not transfer.
 3. **Chase accumulation, not a single big win.** Because the elasticity is
    ×1.48 per +0.10 %, three independent +0.1 % local wins compound to ×3.2 on
    per-shot crown probability. That is a far more tractable programme than
