@@ -31,7 +31,9 @@ sit exactly on the matrix–matrix paths and never on the matrix–vector paths:
 score is the observable half — which is lucky, and which should decide where the
 remaining effort goes.
 
-Six consequences, in descending order of how much work they cancel:
+Eight consequences, in descending order of how much work they cancel (7 and 8
+were added late, and they cancel the most: 7 retracts an arm this document
+previously advertised, and 8 is the audit of its replacement):
 
 1. **Arm A2 (fused-NAX `bn` 128→64, `matmul.cpp:213-218`) has zero local
    observability.** It edits `steel_matmul_regular_axpby_nax`, reached only from
@@ -103,6 +105,30 @@ Six consequences, in descending order of how much work they cancel:
    a section: the `MLX_SDPA_BLOCKS` null reported in §7.2 was not a weak effect,
    it was a **structural zero** — that env read lives at `sdpa.cpp:477`, inside
    `sdpa_vector_2pass`, a function this benchmark never calls.
+
+8. **The replacement arm survives its own audit, and we already have a receipt
+   inside it (§10.6).** Rather than let §10.4's nomination of the prefill
+   full-attention family stand on the same kind of assertion that produced
+   correction 8, I ran the five questions on it. It passes: the scored shapes reach
+   `sdpa_full_self_attention_nax` (`scaled_dot_product_attention.cpp:177`), and
+   the reachable code is also the *editable* code — `kernels/steel/attn/` (10
+   files), `mlx-generated/steel_attention_nax.cpp` and the JIT factory
+   `jit_kernels.cpp:1344` are all in `editablePaths`. Two conditions I had not
+   anticipated: the tile geometry is **frozen** by the non-editable dispatch
+   (`bq=64, bk=32, wm=4, wn=1` at `:31-36`; grid `(NQ,H,B)` and group `(32,wm,wn)`
+   at `:160-161`), so the arm is kernel-body-only; and at `qL=512`, `kL≥512` both
+   alignment function constants are true, so only the aligned specialisation is
+   scored. Three JIT-injected knobs live here — `DARKBLOOM_ATTN_QHOIST`
+   (default off), `DARKBLOOM_ATTN_QBLOCK_MAJOR` and `..._ZIGZAG` (both default
+   on) — and **none** of them is injected into the non-NAX factory (`:1269`), so
+   on this host they are not merely unmeasurable but unobservable. The decisive
+   fact is historical: ticket 3 already flipped QHOIST and shipped it
+   (`e4078827`, −1.36 % = −3.82 σ, localised to candidate prefill at 196.2976 µs
+   vs a 187.65–188.03 µs band, +4.27 σ, reverted in ticket 4). So the claim that
+   this leg adjudicates a real change in ~2 receipts is no longer a noise-model
+   extrapolation — it has been demonstrated once, at 4.3 σ, in the wrong
+   direction.
+
 
 ---
 
@@ -1001,4 +1027,133 @@ precisely because they are boring.
 Cost of this section: zero builds, zero runs, zero submission slots. It retracts
 one arm, converts one null into a closed file, and promotes the prefill kernel
 family from "third-ranked transfer risk" to the only attention arm worth having.
+
+
+### 10.6 The replacement arm, scope-verified — and the fact that we already fired into it once
+
+§10.4 nominated "the prefill full-attention family" as the honest replacement for
+the arm §10.3 retracted. That nomination was itself a reachability claim, so the
+only defensible thing to do was run the five questions on it before letting it
+stand. I did. It survives, but with two conditions I did not anticipate, and it
+turns out this campaign has **already shipped one receipt into it** — which is
+the strongest evidence in the whole document that the leg is adjudicable.
+
+**(a) Editable scope: the family is open in three layers, closed in two.**
+
+| layer | file | `editablePaths`? |
+|---|---|:-:|
+| kernel body (feeds AOT metallib *and* the JIT string) | `kernels/steel/attn/` — 10 files: `attn.h`, `loader.h`, `mma.h`, `nax.h`, `params.h`, `transforms.h`, `kernels/steel_attention{,_nax}.{h,metal}` | **yes** (directory entry) |
+| JIT source string | `mlx-generated/steel_attention_nax.cpp` (and `steel_attention.cpp`) | **yes** |
+| kernel factory + compile-time defines | `get_steel_attention_nax_kernel`, `jit_kernels.cpp:1344` (declared `kernels.h:389`) | **yes** |
+| non-JIT factory | the same symbol at `nojit_kernels.cpp:458` | **no** |
+| dispatch, tile choice, launch grid | `scaled_dot_product_attention.cpp:18-164` | **no** |
+
+Contrast with §10.3's retracted arm, where the *only* editable file
+(`kernels/sdpa_vector.h`) sat behind a dispatch predicate that the scored shapes
+never satisfy. Here the reachable code and the editable code are the same code.
+
+**(b) The host gate, verbatim.** `sdpa_full_self_attention_metal`
+(`scaled_dot_product_attention.cpp:166`) forwards to the NAX kernel at `:177`
+only when
+
+```
+metal::is_nax_available() && q.shape(3) != 80 &&
+    (env::enable_tf32() || q.dtype() != float32)
+```
+
+headDim is 128 (so `!= 80` holds) and the model is bfloat16 (so the third
+conjunct holds without `tf32`), which leaves `is_nax_available()` as the single
+discriminator — true on the ranked host, false here (§1). This arm is therefore
+**correct-only locally and fast-only remotely**: I can prove a change is
+bit-exact on this machine and cannot see one microsecond of its effect.
+
+**(c) The geometry is frozen by the non-editable side.** `:31-36` hardcodes
+`wm=4, wn=1, bd=q.shape(-1)=128, bq=64, bk=32`, and `:160-161` launches
+`grid_dims=(NQ,H,B)` with `NQ=ceil(qL/bq)` and `group_dims=(32,wm,wn)`. Every one
+of those numbers is computed in the file I may not touch, so an editable-side
+change that alters tile shape or threads-per-group desynchronises the grid and is
+simply wrong. Three consequences worth writing down before anyone proposes a
+tiling arm:
+
+1. **Kernel-body-only.** Legal: loop order, staging/prefetch discipline,
+   threadgroup-memory layout, accumulator handling, mask/causal specialisation,
+   instruction selection. Illegal: `bq`, `bk`, `wm`, `wn`, threads per group.
+2. **The aligned specialisation is the only one scored.** At the benchmark's
+   shapes `qL=512` and `kL≥512`, so `align_Q = (512 % 64 == 0)` and
+   `align_K = (512 % 32 == 0)` (`:46-47`) are both true, and function constants
+   200/201 (`:53-54`) select the aligned path. Any cleverness confined to the ragged tail
+   (`qL_rem`, `kL_rem`, both zero here) is unscored — the same class of mistake as
+   §10.3, one level down.
+3. `NQ=8` blocks × `H` heads × `B` batches is the entire parallel decomposition,
+   so occupancy arguments have to be made against that grid, not against a
+   hypothetical one.
+
+**(d) Three live knobs, all of them `_nax`-only.** The factory at `:1344`
+concatenates three define-injectors before the kernel source:
+
+| define | env var and test | default | status |
+|---|---|:-:|---|
+| `DARKBLOOM_ATTN_QHOIST` | `== "1"` (`jit_kernels.cpp:1307`) | **off** | tried — ticket 3, −3.82 σ, reverted (see (e)) |
+| `DARKBLOOM_ATTN_QBLOCK_MAJOR` | `!= "0"` (`:1319`) | **on** | untested; only the OFF direction is available |
+| `DARKBLOOM_ATTN_QBLOCK_ZIGZAG` | `!= "0"` (`:1331`) | **on** | untested; only the OFF direction is available |
+
+`DARKBLOOM_ATTN_TRACE=1` makes all three print `mlxfast: attn <knob>: enabled=…`
+to stderr, which is the §9-style observability handle for this family. The
+critical detail is negative: the **non**-NAX factory
+`get_steel_attention_kernel` (`:1269`) injects *none* of the three. So on this
+host the knobs are not merely unmeasurable, they are unobservable — the static
+initialisers that read the environment never run, and even the trace prints
+nothing. Two of the three are default-on, meaning the only experiment they offer
+is "how much does the existing Q-block scheduling buy", a diagnostic rather than
+a candidate win; QHOIST is the only one whose ON direction was ever open, and it
+is spent.
+
+**(e) The positive control: we already have a receipt in this family.** Ticket 3
+(`37f16a7a`) flipped `DARKBLOOM_ATTN_QHOIST` on — a `#if` in
+`steel_attention_nax.h:22-23` with bodies at `:292` and `:369-374` that hoists the
+loop-invariant Q fragments out of the K-block loop — and shipped it as receipt
+`e4078827`: published **2.52713571388054**, normalized **2.532026957**, i.e.
+**−1.36 % = −3.82 σ** against the campaign's own instrument. The damage was
+localised exactly where this section says the leg lives: candidate prefill
+**196.2976 µs** against 187.6946 / 187.6487 / 187.8374 / 187.6905 / 188.0314 µs
+from the campaign's other five receipts, **+4.27 σ**. Ticket 4 (`666a80bb`)
+reverted it, and today `git diff 1bc1c895 HEAD --
+kernels/steel/attn/ mlx-generated/steel_attention_nax.cpp` is **empty**: the
+shipped tree is byte-identical to fork main in this family.
+
+That receipt is worth more than the arm that produced it. §10.4 claimed the
+candidate-prefill leg can adjudicate a real change in ~2 receipts because its
+pooled instrument sd is 0.0750 % on 3 df. That is a noise-model extrapolation, and
+this document's own retraction ledger is mostly noise-model extrapolations that
+broke. Ticket 3 is the **empirical** version of the same claim: one receipt, one
+real kernel change, 4.3 σ of signal on that leg, unambiguous verdict, revert. The
+leg is not a coin flip — it has been exercised, and it resolved.
+
+**(f) The sting, recorded because it is the actual lesson.** The reachability
+chain that §10 says I failed to run is quoted *verbatim in that very commit
+message*: ticket 3's body walks `callLastPrefillRow` (final layer only, `qL==1`)
+→ `attentionWithCacheUpdate` → `ScaledDotProductAttention::use_fallback` (false
+at `qL=512>8`, headDim 128 ∈ {64,80,128}) → `sdpa_full_self_attention_metal`
+→ `_nax`, and concludes "the nax kernel IS the ranked prefill attention kernel".
+So the §8 failure was not that I lacked the method. I had executed it, correctly,
+eight commits earlier, on a *different* claim in the same subsystem — and then
+asserted the second claim from a `#define` without re-running it. The rule that
+follows is procedural, not intellectual: **the five questions are a per-claim
+checklist, not a lesson you learn once.** Cheapest possible enforcement, and the
+one I would impose on the whole slate: an arm proposal must cite its dispatch
+predicate as `file:line`, and if it cannot, it is not an arm yet.
+
+**(g) What this hands the rest of the slate.** maple-tanjiro's A2 (fused-NAX
+`bn` 128→64) and maple-edward's #693 (ping-pong tile staging / zero-tgmem
+register prefetch, `_nax` port) are in the right family, on the right leg, and
+adjudicable at 1–2 receipts — with three caveats they should be told before they
+build: the tile geometry above them is frozen (c), only the aligned
+specialisation is scored (c2), and the leg to report is
+`officialMetrics.prefill_seconds_per_token`, not the composite score, whose
+pooled sd is 0.5169 % and would need 78 receipts for the same question. And the
+honest expectation is set by (e): the one arm this family has already seen moved
+the leg by 4.3 σ in the *wrong* direction.
+
+Cost of this subsection: zero builds, zero runs, zero submission slots — five
+files read and one `git diff`.
 

@@ -1199,6 +1199,22 @@ retracted noise floor, and they stand:
    `kernels/scaled_dot_product_attention.metal`, both editable), which is
    NAX-forked and therefore locally unmeasurable but sits on the tightest leg in
    the campaign — 2 receipts at 0.30 % (§5.3g), the same leg as #692 A2.
+   **That replacement has since been audited to the same standard it replaces**
+   (§10.6): the reachable code and the editable code coincide there
+   (`kernels/steel/attn/` 10 files, `mlx-generated/steel_attention_nax.cpp`, and
+   the JIT factory `jit_kernels.cpp:1344`, all in `editablePaths`), but the tile
+   geometry is **frozen** by the non-editable dispatch (`bq=64, bk=32, wm=4, wn=1`,
+   grid `(NQ,H,B)`, group `(32,wm,wn)`), so it is a kernel-*body* arm only, and at
+   `qL=512` only the aligned specialisation is scored. Its three JIT knobs
+   (`DARKBLOOM_ATTN_QHOIST` default off, `DARKBLOOM_ATTN_QBLOCK_MAJOR` and
+   `..._ZIGZAG` default on) are injected into the `_nax` library alone, so they are
+   unobservable on this host. And the decisive point for planning: **this campaign
+   has already spent one receipt in that family.** Ticket 3's QHOIST flip
+   (`e4078827`) came back at −1.36 % = −3.82 σ, localised to candidate prefill
+   (196.2976 µs against 187.65–188.03 µs, **+4.27 σ**) and was reverted. So the "2
+   receipts" figure is no longer an extrapolation from a 3-df noise estimate — the
+   exact leg, in the exact family, resolved a real kernel change in **one** receipt.
+   That is the only claim in this document that a retraction made *stronger*.
 8. **`MLX_SDPA_BLOCKS` is a null and is not shippable anyway.** Eight local runs
    (default ×2, 16, 32, 128, 256 ×2, 512) all correct on golden
    `b9509697c08a2cf3`; the apparent −0.65 % win at 256 did not replicate (12850 →
