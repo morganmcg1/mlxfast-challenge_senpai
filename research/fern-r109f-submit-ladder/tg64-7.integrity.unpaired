@@ -1,0 +1,11 @@
+{
+  "score_path": "score.json",
+  "score_sha256": "d8d6627c770a3c638c4a6da15549c6aa506f8bb602d37e50dee1e173c538ae44",
+  "weights_path": "weights",
+  "weights_sha256": "aff994300573c5e8589563fc9ff57cdcfb1ef9b49e14898be290a75a6b294b3d",
+  "weights_file_count": 9,
+  "weights_byte_count": 21568891382,
+  "golden_path": "[private]",
+  "golden_sha256": "f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2",
+  "transform_source_sha256": "5929dfd16cedf35645e5a2bab62baa06ae4908382eae16917f1594bafb3715ec"
+}
