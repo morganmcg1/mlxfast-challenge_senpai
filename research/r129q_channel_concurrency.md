@@ -1,6 +1,52 @@
 # R129-Q — is the shared submission channel serial or concurrent?
 
 ```
+FLIP OBSERVED — SLOT IS FREE (watcher poll 15:37:44Z, my clock check 15:40:27Z)
+  row c06b1b6d  created 13:51:13.810Z  ->  terminal 15:35:48.841Z   sojourn 104.58 min
+  status rejected   officialScore 2.58896632157301   improved false
+  ours_live_after: []   global in-flight 10 -> 9
+  SERIAL HELD END TO END: exactly one own row at every one of the watcher's polls,
+  never two. No REFUTATION_SERIAL_CAP event. The cap survived its live test.
+
+  MY REGISTERED PREDICTION WAS A MISS — HIGH, by 48.8 s.
+    registered band     14:30-15:35Z  -> actual 15:35:48.841Z, 0.81 min past the edge. MISS.
+    band centre 15:10Z  -> +25.81 min
+    pre-filed KM median 15:21Z -> +14.81 min
+    pre-filed KM p75    15:34Z -> +1.81 min   <-- best pre-filed statistic
+    KM p90 / ceiling-aware conditional p50 15:42Z -> -6.19 min (landed early of it)
+  I filed "I expect to MISS HIGH, band P=27.6 %" BEFORE the outcome (result #8,
+  W&B hnabvl2v). The direction was right; the band was still wrong, and a 49-second
+  overshoot is a miss, not "essentially a hit".
+
+  It took the ~72.4 % SCORED branch, not the 15.5 % timeout branch: it produced a
+  score and was then judged against the record. My locally-normalised tree estimate
+  of 2.582263 predicted the realised officialScore 2.588966 to within 0.26 % — an
+  out-of-sample check of the normalisation that I had never been able to run.
+
+  FIRE-NOW ODDS for the freed slot, from the published curve (in-flight is now 9, i.e.
+  shallower than the depth>=10 bucket, so these are mildly conservative):
+    fire 15:35Z -> P(adjudicated before 17:00Z) 80.4 %;  15:45Z -> 72.8 %;  15:55Z -> 63.0 %
+  CAUTION: the sojourn just measured (104.6 min) is LONGER than the window that remains
+  (~80 min at 15:40Z). A fire now is a ~75 % shot at being adjudicated at all.
+
+WHAT A FIRE HAS TO BEAT (new, research/r129q_ratchet_and_bar.py)
+  `accepted` does not mean "a good submission" — it means "took the GLOBAL record at
+  that instant": `improved` == (score > global prior max) on 1294/1296 = 99.85 % of
+  scored rows, vs 905/1296 for the account's-own-best model. The bar is read at
+  ADJUDICATION time (1294 vs 1288), so a competitor record landing while our row is
+  validating raises the bar underneath it.
+  Bar 2.6195531094824, set by ggu77wt at 09:34:06Z today. Our best receipt
+  2.60664969895906 (08-10 08:38Z) needs +0.4950 %.
+  Ratchet has STALLED: 29 advances on 08-01, then 7/7/1/0/3/3/1/0/0/1; only 2 since
+  08-08, increments +0.391 % and +0.117 %.
+  ERA-HONEST crown probability: fires clearing the standing bar by >= +0.4950 % are
+  0/158 in the current era (<=1.88 % one-sided 95 %), vs an all-time 61/1295 = 4.71 %
+  that is ratchet-confounded and OPTIMISTIC. Chain: P(crown from the last draw)
+  <= 0.796 x 1.00 x 1.88 % = <=1.50 %, which is BELOW my published 1.5-2 % prior
+  (mid 1.75 %). That prior is unsupported and is hereby lowered.
+```
+
+```
 VERDICT: SERIAL, and the serial constraint is a HARD PER-ACCOUNT CAP OF 1 IN FLIGHT
          (enforced by the platform, not by our driver's politeness)
 LISTING SCOPE: BOTH scopes exist and we have been mixing them.
