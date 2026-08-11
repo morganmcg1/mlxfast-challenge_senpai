@@ -2,7 +2,9 @@
 
 Author: meridian (Maple research advisor, AI agent)
 Written: 2026-08-11 ~10:45Z, ~6.25 h before close
-Last revised: 2026-08-11 ~16:43Z — **§10 added: the closing addendum. It confirms the channel
+Last revised: 2026-08-11 ~16:44Z — **§10 added: the closing addendum. Its last subsection (xiii) is the
+final channel read: the slot is no longer free, one submission `60cd9ca` is in flight from 16:27Z, it is
+not Maple's, and its `diff` will be the only bar reading available after 13:51Z. The rest confirms the channel
 stand-down by inspection, hands over the one packet worth a slot
 (`DARKBLOOM_STEEL_PREFILL_TILE=0`), retracts a receipt-to-mechanism attribution of mine as **error
 10** (GATE A has no ranked reading), records the frontier's move to `4ea72c3` — which makes every
@@ -1466,7 +1468,7 @@ here rather than left implicit.
 
 ---
 
-## 10. Closing addendum, 16:07–16:43Z — stand-down, handover, error 10, a moved frontier, and the last channel read
+## 10. Closing addendum, 16:07–16:44Z — stand-down, handover, error 10, a moved frontier, and the last channel read
 
 Written ~50 minutes before close, after §9 was already final. Nothing here changes a fleet result;
 it changes what may be *inherited* from this file.
@@ -1926,6 +1928,47 @@ the two handoff documents exists, every `§N` resolves in one of them, and the l
 (bar `2.6195531094824`, best receipt `2.60664969895906`, gap `0.4950 %`, both currencies, frontier
 `4ea72c3`) are spelled exactly one way in both. If you edit either document, re-run it before you
 trust it.
+
+### (xiii) 16:44Z: the slot is no longer free — one submission is in flight, and it is not ours
+
+Last read of the shared account before I stop, `mlxfast submissions`, read-only, 16:44Z. It is not the
+same picture as the 16:27Z read in (vi), and the difference is the whole point of taking it:
+
+```
+rows           179   (107 rejected + 70 failed + 1 promoted + 1 VALIDATING)
+newest row     60cd9ca   status validating   score n/a   diff n/a   commit -   created 8/11/26 4:27 PM
+prior newest   c06b1b6   rejected 2.58896632157301   diff -0.030587   13:51Z
+```
+
+Three things follow, in decreasing order of how sure I am.
+
+**1. The channel is occupied (certain).** The channel is SERIAL (§8 rule 7). `60cd9ca` was created at
+16:27Z and is still `validating` 17 minutes later, which is consistent with the ~15–25 min adjudication
+latency in §5. Until it terminates, nothing else can be fired. Anyone reading this manifest after close
+and wondering why Maple has no final row: this is the mechanical reason on top of the deliberate one.
+
+**2. Maple did not fire it (certain, and this is the auditable claim).** §10(xi) is the 16:37Z local
+stand-down: no crontab, empty `atq`, no launchd agent, no `mlxfast` process on this host — taken *ten
+minutes after* 16:27Z, so it also serves as an alibi for this row. No Maple student was running; all six
+are idle with terminal assignments (§9). The row is the slot holder's, per the operator's 10:00Z
+direction that the submission slot is theirs from 10:00Z to close. I have not verified its commit and I
+am not going to guess at it — `commit` prints `-` while validating.
+
+**3. The bar is unchanged as far as anyone can see, but this read cannot refresh it (rule 23).** The bar
+is only recoverable from the `diff` column of *adjudicated* rows, so it is still pinned to 13:51Z:
+2.61955311 / 2.61955332 / 2.61955336 across the three newest, spread 2.5e−7, i.e. print rounding on a
+6-dp `diff`, not drift. Published bar **2.6195531094824** stands. When `60cd9ca` adjudicates it will
+print a fresh `diff` and therefore a fresh bar — **that row is the single most valuable number left in
+this campaign**, because it is the only bar reading anyone will get after 13:51Z. Whoever picks this up:
+read `score − diff` off it before you conclude anything about whether the crown moved during the
+afternoon.
+
+What this does *not* tell you: whether a competitor cleared the bar since 13:51Z. It cannot. The listing
+is our account only. That caveat is unchanged from (vi) and rule 23 and I am not weakening it in the last
+fifteen minutes just because a fresh row appeared.
+
+Nothing here changes any recommendation in the brief. Maple fires nothing; that was already true when
+the slot was free, and it is more obviously true now that it is not.
 
 ---
 
