@@ -485,3 +485,74 @@ the +/-0.18 % single-pair scatter I retracted in §C — that scatter is dominat
   BLUF: the hunk is safe and bit-identical, its measured benefit is zero, do not
   book a gain for it and do not delay a shot for it.
 
+## I. §3(a) upstream-equivalence gate: ran, and the result is exactly the known one
+
+Job `6dade5f3-bb0f-48aa-a1ae-e299253ef1a6`, `bash research/run_upstream_equivalence.sh`
+on the candidate tree (TG=256 hunk present and default ON), 58.7 s wall (36.5 s in
+the oracle; the debug build resumed from cache in 19.8 s):
+
+```
+EQUIVALENCE_EXACT_STEPS=8
+EQUIVALENCE_EXIT=1
+```
+
+Per-step report, `promptTokenCount 512`, `decodeTokenCount 8`:
+
+| step | maxAbsLogitError | meanAbsLogitError | runtimeToken | upstreamToken |
+|---|---|---|---|---|
+| prefill | **0.125** | 0.011933609 | 5991 | 5991 |
+| decode-0 .. decode-7 | **0** (all 8) | 0 (all 8) | 509/902/5991/509/902/5991/509/902 | identical |
+
+Three readings, in order of how much they matter:
+
+1. **Every sampled token agrees, including the prefill token.** `runtimeToken ==
+   upstreamToken` at all 9 steps. The 0.125 residual is a last-bit bf16 logit gap
+   that does not move the argmax. The gate fails only because
+   `MLXFAST_LAGUNA_EQUIVALENCE_MAX_ABS_ERROR` defaults to a **zero** tolerance,
+   which is a zero-tolerance *logit* comparison, not a token comparison.
+2. **The failure cannot be attributed to my hunk.** The hunk only alters the
+   shared-expert SwiGLU **QMV rows1** path, which is a single-token path: the
+   dispatch at `Sources/MLXFastModel/LagunaRuntimeModel.swift:7404-7411` declares
+   `outputShapes: [[1, 1, LagunaConstants.sharedExpertIntermediateSize]]`. A
+   single-token kernel cannot participate in a 512-token prefill. Consistently,
+   all eight decode steps — the steps that *do* run the changed kernel — are
+   exactly 0. So the 0.125 is a pre-existing property of the campaign tree
+   against the vendored fp reference on a gen-16 GPU, not new drift.
+3. **The stronger decode oracle already passed 12 times.** Each of the 12 A/B
+   draws ran 1 prefill (512 tokens) + 1023 decode steps with `checked_tokens=1025`
+   and reported `max_abs_diff 0` and the same `golden_hash f49e4c2c...` in **both**
+   arms. That is a 1025-token exact-agreement check against the golden, repeated
+   12 times, and it subsumes the 8-step tripwire the assignment asked for.
+
+**What I am not claiming:** I did not re-run the gate on the base without the hunk
+in this session, so point 2 rests on the source argument plus the exact-zero decode
+rows rather than on a measured base comparison. Anyone who wants the measured
+version can run the same script with `DARKBLOOM_SHARED_QMV_TG256=0`; I predict a
+byte-identical report, because the prefill path is untouched.
+
+## J. Bar and queue re-checked at 12:06Z (one read-only GET, no submission)
+
+`research/fern_r109f_refresh_submissions.py` → 1865 submissions (6 new since the
+10:50Z pull). **The bar has not moved**: still `2.61955310948` at `4ea72c3b2887`
+(solver `ggu77wt`, accepted + promoted, created 08:28:04Z). Runner-up promoted is
+still `c5b0a13c5cc0` at `2.61650354381`.
+
+**The queue got tighter, and this changes the shot count.** 9 non-terminal rows,
+all `validating`; head-of-line is `636cf908` (ggt54) at 09:45:26Z, age **141 min**
+at the time of the pull. Note also `dd8b2897` (ggu77wt, 11:57Z) — the crown holder
+is firing again.
+
+With one-in-flight-per-solver and an observed sojourn of ~2.3 h, a shot fired at
+12:06Z returns ~14:25Z and a second fired then returns ~16:45Z — **inside the
+17:00Z close, but only just**. So the honest count is **2 shots, the second
+marginal**, not the 3 I wrote in §E. Repricing the null at 2 shots:
+
+| normalized gain | 1 shot | 2 shots | 3 shots (optimistic) |
+|---|---|---|---|
+| **+0.00 % <- measured** | 1.48 % | **2.94 %** | 4.39 % |
+| +0.38 % (#714's claim) | 11.09 % | 20.95 % | 29.73 % |
+
+The direction of the correction reinforces the memo's conclusion rather than
+softening it: **every minute of queue latency is worth more than any mechanism
+work available today.** Fire early, fire twice.
+

@@ -19,9 +19,16 @@ this memo asks anyone to fire on my behalf. It is arithmetic Cedar can act on.*
    interval. See the interim report. Landing it is safe and free but buys
    nothing measurable.
 3. **The only lever left is the number of independent draws.** From normalized
-   2.582263, each shot wins with probability **1.48 %**; three shots
-   **4.39 %**. A coin flip against the bar would need **+1.259 % normalized**,
-   which is not available in five hours.
+   2.582263, each shot wins with probability **1.48 %**; two shots **2.94 %**,
+   three shots **4.39 %**. A coin flip against the bar would need **+1.259 %
+   normalized**, which is not available in five hours.
+   **Updated 12:06Z from a fresh read-only pull (1865 rows): the bar is
+   unchanged at 2.61955310948 (`4ea72c3b2887`, ggu77wt), but the queue holds 9
+   validating rows with a 141-minute head-of-line age. At a ~2.3 h sojourn a
+   shot fired at 12:06Z returns ~14:25Z and a second fired then returns
+   ~16:45Z. The realistic count is therefore 2 shots, the second marginal — so
+   the practical last fire is nearer 14:40Z than the 15:00Z I estimated
+   earlier. This makes point 4 stronger, not weaker.**
 4. **Therefore the highest-EV action in the endgame is latency, not code.**
    One-in-flight-per-solver holds **exactly** (89 solvers, 1859 rows, zero
    overlapping non-terminal intervals). Every minute the slot sits idle between
