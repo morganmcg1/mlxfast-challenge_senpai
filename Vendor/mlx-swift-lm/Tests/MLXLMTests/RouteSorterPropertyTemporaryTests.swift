@@ -44,10 +44,10 @@ struct RouteSorterPropertyTemporaryTests {
     @Test func pairedSorterTiming() throws {
         let capturePath = "/tmp/f322-pr738-real-route-c3999cf6.csv"
         let capture = try String(contentsOfFile: capturePath, encoding: .utf8)
-        let realKeys = capture.split { character in
-            character == "," || character == "\n" || character == "\r"
-                || character == " " || character == "\t"
-        }.compactMap(UInt32.init)
+        let fields = capture.split(separator: ",")
+        let realKeys: [UInt32] = fields.compactMap {
+            UInt32(String($0).trimmingCharacters(in: .whitespacesAndNewlines))
+        }
         #expect(realKeys.count == routeCount)
         #expect(realKeys.allSatisfy { $0 < 256 })
         guard realKeys.count == routeCount, realKeys.allSatisfy({ $0 < 256 }) else {
