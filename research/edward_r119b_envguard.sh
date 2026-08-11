@@ -18,11 +18,12 @@ run_cell() {
     else
       unset DARKBLOOM_STARTUP_MEMORY_PROFILE
     fi
-    python3 research/decode_probe.py --steps "$STEPS" --prefill --stderr
+    python3 research/decode_probe.py --steps "$STEPS" --prefill \
+      --stderr "${OUT}/${tag}.werr"
   ) >"${OUT}/${tag}.log" 2>"${OUT}/${tag}.err"
   echo "exit=$?"
   grep -h -E 'ENVREADBACK|low-memory startup|worker up in|diagnostics after load|median=' \
-    "${OUT}/${tag}.log" "${OUT}/${tag}.err" | sed "s/^/${tag}: /"
+    "${OUT}/${tag}.log" "${OUT}/${tag}.err" "${OUT}/${tag}.werr" | sed "s/^/${tag}: /"
 }
 
 run_cell auto ""
