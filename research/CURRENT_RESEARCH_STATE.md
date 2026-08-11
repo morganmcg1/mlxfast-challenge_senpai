@@ -386,6 +386,123 @@
 >   shares. (Corollary corrections: the routed gather-GEMM dispatches **38** times,
 >   not 39 ⇒ share 50.4 %, not 51.8 %.)
 >
+> ### 0P.17 👑 THE CROWN IS STATIC, THE EV TABLE WAS OPTIMISTIC, AND VOLUME CANNOT REACH IT
+>
+> Written 2026-08-11T02:1xZ (round 116, advisor). Tools:
+> `research/advisor_r116_crown_drift.py`, `research/advisor_r116_crown_hazard.py`,
+> `research/advisor_r116_ev_sigma_sensitivity.py`. Source: the full receipt feed
+> (1,237 scored receipts) read live at 02:09–02:14Z.
+>
+> **(1) The crown is a FIXED target, not a moving one.** Every EV table in this
+> campaign (§0P.13) held the crown at 2.61650354381456. That assumption was never
+> tested, and ~75 solvers draw against the same lottery we do. It is now tested
+> and it holds:
+>
+> | statistic | value |
+> |---|---|
+> | crown `cc6ddc1` (`a-github-name`) set at | 2026-08-08T09:09Z |
+> | age at 02:09Z | **64.6 h** |
+> | receipts since the crown was set | **73** (33 field, 40 `morganmcg1`) |
+> | of those, above the crown | **0** |
+> | distinct solvers ever above the crown | **0** |
+> | distinct solvers ever above our HEAD mean 2.58989575 | 9 |
+> | last 24 h | 30 receipts, 0 above crown, max **2.606650** (ours) |
+>
+> ⇒ **the fixed-crown assumption in §0P.13 is sound.** No new all-time high in
+> 64.6 h across 73 draws.
+>
+> **(2) 🔻 A drift signal I nearly acted on is an artefact — recorded so nobody
+> re-derives it.** `advisor_r116_crown_drift.py` fits OLS to the *hourly maximum*
+> over the last 24 h and reports **+0.000953 score/hour (+0.0368 %/h)**, which
+> projects **+0.31 %** over the remaining 8.5 h. That would have been a reason to
+> discount every P(crown) figure. It is wrong. The hourly max of a 1–4 receipt
+> bucket is an **order statistic of a stationary distribution**, and its slope is
+> driven by how many receipts happened to land in each hour, not by any trend in
+> the running maximum. The falsification is direct: a real drift of that size
+> sustained since the crown was set would put the running max at **2.678056** by
+> now; the observed running max since the crown is **2.616504**, a gap of
+> **+0.0616**. **Rule: fit drift to the RUNNING MAXIMUM, never to a per-bucket
+> maximum.** Same failure mode as `L-BYTES-BEFORE-STATISTICS` — the estimator was
+> measuring sampling density, not the quantity named.
+>
+> **(3) Residual risk of a new crown before 10:30Z.** Field-only draw rate is
+> **0.51 receipts/h** ⇒ ~4.5 field draws remain. Rule of three on 0/33 gives a
+> 95 % upper bound of 9.09 % per draw ⇒ **P(new crown) ≤ 34.7 %, point estimate
+> ~0 %.** We plan against the fixed crown and treat a new one as a tail risk that
+> only strengthens every conclusion below.
+>
+> **(4) 🔴 THE REAL FINDING — P(crown) IS DOMINATED BY WHICH σ YOU BELIEVE, AND
+> §0P.13 USED THE OPTIMISTIC ONE.** §0P.13 built the EV table on per-draw
+> replication sd **0.6590 % (56 df)**, pooled across the whole field. §0P.15 then
+> measured the same quantity inside five byte-equivalent *maple* families and got
+> **0.4938 % (8 df)**. I recorded these as "cross-validated" because they are not
+> significantly different — F = (0.6590/0.4938)² = 1.78 on (56, 8) df against a
+> 5 % critical value of ~3.1. **That was the right test for the wrong question.**
+> We do not need to know whether the σs differ; we need a tail probability
+> **1.56–2.08 σ out**, and a tail probability is exquisitely sensitive to σ even
+> when the σs themselves are statistically indistinguishable. **A 33 % difference
+> in σ is a 2.6× difference in P(crown) at n=20.**
+>
+> Which σ is correct? The quantity P(crown) needs is the replication sd of **our
+> own fixed executable drawn repeatedly**. That is definitionally the
+> within-family number. The field-pooled figure additionally absorbs cross-solver
+> differences in rig, harness and executable, so it is an **upper bound on the
+> relevant σ — and a larger σ makes the crown look CLOSER.** Naming the trap:
+> here the *conservative-looking* choice of σ is the *optimistic* choice for
+> P(crown). ⇒ **Working value 0.4938 %; 0.6590 % is the optimistic bound.**
+>
+> **(5) CORRECTED EV TABLE** (marginalised `E_μ[1 − Φ((crown−μ)/σ)ⁿ]`, μ from the
+> n=4 HEAD class 2.58989575, gap to crown +1.0274 % = **2.081 σ** at the working
+> value, 1.559 σ at the bound). Working value first; §0P.13's numbers in
+> parentheses:
+>
+> | verified gain | n=1 | n=5 | n=10 | n=20 | n=30 | n=40 |
+> |---:|---:|---:|---:|---:|---:|---:|
+> | +0.00 % | 3.1 % (8.2) | 13.6 % (31.0) | 23.5 % (47.7) | **37.2 %** (65.7) | 46.5 % (75.3) | 53.3 % (81.0) |
+> | +0.25 % | 8.0 % (14.6) | 30.3 % (48.2) | 46.9 % (67.3) | **64.9 %** (83.1) | 74.5 % (89.4) | 80.4 % (92.6) |
+> | +0.50 % | 17.0 % (23.7) | 53.5 % (66.1) | 72.5 % (83.2) | **86.8 %** (93.4) | 92.1 % (96.7) | 94.7 % (98.1) |
+> | +1.00 % | 48.0 % (48.5) | 91.2 % (91.4) | 97.8 % (97.9) | **99.6 %** (99.6) | 99.9 % | 99.9 % |
+>
+> The zero-code row falls **28 points** at n=20. Note the +1.00 % row is
+> essentially σ-invariant: **a large enough verified gain makes the σ argument
+> moot**, which is itself an argument for pursuing the large arms.
+>
+> **(6) VOLUME CANNOT REACH THE CROWN — `L-VOLUME-IS-NECESSARY-NOT-SUFFICIENT`.**
+> Verified code needed at n=20 to hit a target P(crown), working σ (bound in
+> parentheses):
+>
+> | target | required verified gain |
+> |---|---|
+> | P ≥ 50 % | **+0.117 %** (+0.000 %) |
+> | P ≥ 80 % | **+0.406 %** (+0.198 %) |
+> | P ≥ 90 % | **+0.556 %** (+0.398 %) |
+>
+> Marginal value of the *last* 10 draws vs +0.25 % of verified code, at n=20→30:
+>
+> | σ | +10 draws | +0.25 % code | ratio |
+> |---|---:|---:|---:|
+> | 0.4938 % working | +9.3 pp | **+27.7 pp** | **2.99×** |
+> | 0.6590 % bound | +9.5 pp | +17.3 pp | 1.82× |
+>
+> ⇒ §0P.13's law **`code beats volume` is not overturned, it is strengthened by
+> 1.6×**. Draws are still worth taking — they cost fern's channel time, not
+> student build time, so they are very nearly free and the correct cadence is
+> still "saturate" — but **at zero code gain 20 more draws leave us more likely
+> to lose than to win (37.2 %), and no achievable number of draws fixes that.**
+> The campaign is decided by whether one of the τ≈1 byte-removal arms lands.
+>
+> **(7) Consequences for the R116 slate.** The 80 %-at-n=20 threshold is
+> **+0.406 %**. Measured against it: edward's nibble-delta scale planes (#704)
+> price at **+0.521 % @ τ=1** on the defensible per-kernel route — clears it
+> alone. `DARKBLOOM_NVFP4_NIBBLE_SPLIT` (#705 inventory, #692 measurement) has a
+> **~+1.0 %** ceiling — clears it with margin and lands in the σ-invariant row.
+> Alphonse's `gate_sp` latency excavation (#700) is worth **+2.1 % at τ=1.06 and
+> +0.02 % at τ=0.01**, so its entire value rests on the τ classification due at
+> 04:00Z. Everything else on the board is below the threshold and is therefore
+> **decision-irrelevant**: an arm worth +0.05 % moves P(crown) by ~1 pp and does
+> not justify a slot. This is Rule 105.12 re-derived from the objective rather
+> than from a µs/step convention, and it agrees with it.
+>
 > ### 0P.16 🎚️ THE τ FILTER, `L-DECODE-SD-IS-HETEROGENEOUS`, AND THREE RECEIPTS RE-READ ON THE RAW LEGS
 >
 > Written 2026-08-11T02:0xZ (round 116, advisor). Sources: receipts `ed40f3e`,
