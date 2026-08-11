@@ -1,0 +1,118 @@
+order      : OABMMBAOMBAOOABM  (n=16)
+  arm A : mean  13022.33 us/step  sd  63.17  n 4  passed_correctness=true
+  arm B : mean  13000.05 us/step  sd  30.09  n 4  passed_correctness=true
+  arm M : mean  13012.40 us/step  sd  58.97  n 4  passed_correctness=true
+  arm O : mean  12948.20 us/step  sd  31.04  n 4  passed_correctness=true
+
+== prefill negative control (must be arm-independent) ==
+  arm A : mean   1120.57 us/token  sd   6.29  n 4  delta   +2.83  se  4.71  t +0.60
+  arm B : mean   1123.79 us/token  sd  10.97  n 4  delta   +6.04  se  6.51  t +0.93
+  arm M : mean   1125.40 us/token  sd  11.31  n 4  delta   +7.65  se  6.66  t +1.15
+  arm O : mean   1117.75 us/token  sd   7.02  n 4
+
+== position-in-block diagnostic (arm is confounded with slot) ==
+  arm A pos 2 : mean  13002.62 us/step  sd   0.00  n 1
+  arm A pos 3 : mean  12965.57 us/step  sd   0.00  n 1
+  arm A pos 6 : mean  13112.71 us/step  sd   0.00  n 1
+  arm A pos 7 : mean  13008.43 us/step  sd   0.00  n 1
+  arm B pos 2 : mean  13045.10 us/step  sd   0.00  n 1
+  arm B pos 3 : mean  12982.67 us/step  sd   0.00  n 1
+  arm B pos 6 : mean  12987.10 us/step  sd   0.00  n 1
+  arm B pos 7 : mean  12985.32 us/step  sd   0.00  n 1
+  arm M pos 1 : mean  13076.00 us/step  sd   0.00  n 1
+  arm M pos 4 : mean  13048.79 us/step  sd   0.00  n 1
+  arm M pos 5 : mean  12956.63 us/step  sd   0.00  n 1
+  arm M pos 8 : mean  12968.19 us/step  sd   0.00  n 1
+  arm O pos 1 : mean  12904.81 us/step  sd   0.00  n 1
+  arm O pos 4 : mean  12978.41 us/step  sd   0.00  n 1
+  arm O pos 5 : mean  12952.68 us/step  sd   0.00  n 1
+  arm O pos 8 : mean  12956.91 us/step  sd   0.00  n 1
+
+== block-lead spike is identified (slot 1 held by M/O) ==
+  slot-1 penalty   +26.78 us/step  se  43.14  95% CI [  -57.78,  +111.35]
+
+== arm A minus control O ==
+  unpaired Welch                 +74.13 us/step  se  35.19  95% CI [   +5.15,  +143.10]
+  drift-adjusted OLS             +74.13 us/step  se  34.52  95% CI [   +6.47,  +141.78]
+  palindromic block (n=2)        +74.13 us/step  se   0.53  95% CI [  +73.08,   +75.17]
+  Hodges-Lehmann (robust)        +53.63 us/step          boot 95% CI [  +12.89,  +155.79]
+  no block-lead run (pos>1)      +59.66 us/step  se  32.57  95% CI [   -4.18,  +123.51]
+  lead-adjusted OLS              +80.82 us/step  se  37.12  95% CI [   +8.06,  +153.59]
+    point ceiling (saving = -delta):
+      vs advisor stop bar 30.0 us/step  ->  -2.69x bar
+      A: in-kernel busy k=a  (0.006653)        -0.5377 %score
+      A upper: k=beta        (0.007614)        -0.6154 %score
+      k_issue hard upper     (0.009959)        -0.8049 %score
+      host-matched this box  (0.004634)        -0.3745 %score
+      [not applicable: dispatch-family 0.01642 would give -1.3271 %score -- see memo 5.3]
+    optimistic 95% upper ceiling:
+      vs advisor stop bar 30.0 us/step  ->  -0.27x bar
+      A: in-kernel busy k=a  (0.006653)        -0.0536 %score
+      A upper: k=beta        (0.007614)        -0.0614 %score
+      k_issue hard upper     (0.009959)        -0.0802 %score
+      host-matched this box  (0.004634)        -0.0373 %score
+      [not applicable: dispatch-family 0.01642 would give -0.1323 %score -- see memo 5.3]
+
+== arm B minus control O ==
+  unpaired Welch                 +51.84 us/step  se  21.62  95% CI [   +9.47,   +94.21]
+  drift-adjusted OLS             +51.84 us/step  se  34.52  95% CI [  -15.81,  +119.50]
+  palindromic block (n=2)        +51.84 us/step  se   2.18  95% CI [  +47.57,   +56.11]
+  Hodges-Lehmann (robust)        +33.53 us/step          boot 95% CI [   +8.68,   +88.19]
+  no block-lead run (pos>1)      +37.38 us/step  se  17.02  95% CI [   +4.01,   +70.75]
+  lead-adjusted OLS              +58.54 us/step  se  37.12  95% CI [  -14.23,  +131.30]
+    point ceiling (saving = -delta):
+      vs advisor stop bar 30.0 us/step  ->  -1.95x bar
+      A: in-kernel busy k=a  (0.006653)        -0.3895 %score
+      A upper: k=beta        (0.007614)        -0.4457 %score
+      k_issue hard upper     (0.009959)        -0.5830 %score
+      host-matched this box  (0.004634)        -0.2713 %score
+      [not applicable: dispatch-family 0.01642 would give -0.9612 %score -- see memo 5.3]
+    optimistic 95% upper ceiling:
+      vs advisor stop bar 30.0 us/step  ->  0.47x bar
+      A: in-kernel busy k=a  (0.006653)        +0.0946 %score
+      A upper: k=beta        (0.007614)        +0.1083 %score
+      k_issue hard upper     (0.009959)        +0.1417 %score
+      host-matched this box  (0.004634)        +0.0659 %score
+      [not applicable: dispatch-family 0.01642 would give +0.2336 %score -- see memo 5.3]
+
+== arm M minus control O ==
+  unpaired Welch                 +64.20 us/step  se  33.32  95% CI [   -1.11,  +129.51]
+  drift-adjusted OLS             +64.20 us/step  se  34.52  95% CI [   -3.45,  +131.85]
+  palindromic block (n=2)        +64.20 us/step  se   7.65  95% CI [  +49.21,   +79.19]
+  Hodges-Lehmann (robust)        +66.88 us/step          boot 95% CI [   -0.28,  +123.32]
+  no block-lead run (pos>1)      +28.54 us/step  se  30.06  95% CI [  -30.38,   +87.45]
+  lead-adjusted OLS              +64.20 us/step  se  35.52  95% CI [   -5.43,  +133.83]
+    point ceiling (saving = -delta):
+      vs advisor stop bar 30.0 us/step  ->  -2.14x bar
+      A: in-kernel busy k=a  (0.006653)        -0.4271 %score
+      A upper: k=beta        (0.007614)        -0.4888 %score
+      k_issue hard upper     (0.009959)        -0.6394 %score
+      host-matched this box  (0.004634)        -0.2975 %score
+      [not applicable: dispatch-family 0.01642 would give -1.0542 %score -- see memo 5.3]
+    optimistic 95% upper ceiling:
+      vs advisor stop bar 30.0 us/step  ->  0.18x bar
+      A: in-kernel busy k=a  (0.006653)        +0.0361 %score
+      A upper: k=beta        (0.007614)        +0.0413 %score
+      k_issue hard upper     (0.009959)        +0.0540 %score
+      host-matched this box  (0.004634)        +0.0251 %score
+      [not applicable: dispatch-family 0.01642 would give +0.0891 %score -- see memo 5.3]
+
+== dose-response (bit-exact arms only) ==
+  marginal cost  -24.760 ns/step per added issue slot  (se 58.336)
+  first-dose cost +808.223 ns/step per slot -> fixed step cost +83.30 us/step at any dose > 0 (se 41.46)
+  curve is CONCAVE (first > marginal): a fixed per-step cost or clock response, not latency slack
+  implied ceiling for deleting the whole ladder: -0.22 us/step (95% upper +0.81)
+    dose-response point ceiling:
+      vs advisor stop bar 30.0 us/step  ->  -0.01x bar
+      A: in-kernel busy k=a  (0.006653)        -0.0015 %score
+      A upper: k=beta        (0.007614)        -0.0017 %score
+      k_issue hard upper     (0.009959)        -0.0022 %score
+      host-matched this box  (0.004634)        -0.0010 %score
+      [not applicable: dispatch-family 0.01642 would give -0.0037 %score -- see memo 5.3]
+    dose-response 95% upper ceiling:
+      vs advisor stop bar 30.0 us/step  ->  0.03x bar
+      A: in-kernel busy k=a  (0.006653)        +0.0054 %score
+      A upper: k=beta        (0.007614)        +0.0061 %score
+      k_issue hard upper     (0.009959)        +0.0080 %score
+      host-matched this box  (0.004634)        +0.0037 %score
+      [not applicable: dispatch-family 0.01642 would give +0.0132 %score -- see memo 5.3]
