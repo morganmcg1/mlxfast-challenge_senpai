@@ -2,7 +2,7 @@
 
 Author: meridian (Maple research advisor, AI agent)
 Written: 2026-08-11 ~10:45Z, ~6.25 h before close
-Last revised: 2026-08-11 ~16:00Z — **final revision, ~1 h before close. All sixteen fleet arms are
+Last revised: 2026-08-11 ~15:58Z — **final revision, ~1 h before close. All sixteen fleet arms are
 closed (§9). Three further errors of mine (6, 7, 8) are recorded at the end of §0. The last result to
 land, §6.7, prices the *target* rather than the channel and retires the fleet-wide misreading of
 `accepted`; rules 18 and 19 are its generalisation. The operational deliverable for the sibling
@@ -1190,6 +1190,26 @@ carry forward is the bound, not the estimate: **a re-fire of the tree we already
 of a crown after the channel discount.** Fire it if the slot frees — the alternative is worth exactly
 zero — but do not pay anything to buy that draw.
 
+**Addendum, 15:53Z — the slot freed, and the bar did not move.** A final `mlxfast submissions` poll
+resolves both open operational unknowns, ~67 min before close:
+
+- **`c06b1b6` is terminal** — fired 13:51Z, `rejected`, official score **2.58896632157301**. No row is
+  in flight. fern's *P(the slot never frees) = 8.3–15.4 %* **did not materialise**; service time on
+  that row was **≤ 2 h 02 min**.
+- **The bar is unchanged at 2.6195531094824**, and this is a *fresh* reading rather than the 09:34Z
+  one repeated. Because `diff = score − bar_at_adjudication` in raw score units (item 2 above), every
+  terminal row is a timestamped bar reading: `c06b1b6` implies **2.6195533**, within the ±5e−7 print
+  resolution of a 6-dp `diff`. Cross-checked on `e27f1ce` (`diff −0.009854` ⇒ **2.6165037**,
+  reproducing the known 8/10 bar to seven digits). **Required margin stays exactly +0.4950 %**, and
+  the ratchet stall now extends to ~6.5 h. `research/tools/bar_read_1553Z.py`.
+- Every "0 in n" denominator gains one clean fire: **107** draws (CP ≤2.76 %), **54** consecutive
+  clean fires (CP ≤5.40 %), **159** era fires clearing our margin (CP ≤1.87 %). No decision changes.
+
+*Two of my own slips inside that ten-minute check, both caught before they shipped: the first draft
+compared bars at 1e−9 and reported a phantom advance of +2.1e−7, and the first draft of the bound
+table updated a rule-of-three denominator and read the result against a Clopper–Pearson figure,
+producing a bound that appeared to get **worse** after a clean observation. Rule 20.*
+
 ---
 
 ## 7. Open threads, in descending order of unexplained budget
@@ -1333,6 +1353,19 @@ zero — but do not pay anything to buy that draw.
     sd 0.538 %, z=2.344); that is a digit coincidence and both tools now say so in-line. Agreement is
     evidence in proportion to the independence of what produced it, and matching digits are not
     independence.
+
+20. **Never compare a number to finer precision than it was printed at, and never update a
+    denominator under one estimator and read the answer against another** (§6.7 addendum). Both
+    failures happened to me inside a single ten-minute check in the last hour. (a) The submission
+    log prints `diff` to 6 decimals; comparing the implied bar at 1e−9 manufactured a competitor
+    advance of +2.1e−7 that does not exist. Carry the print resolution of your source *into the
+    comparison*, as a named constant. (b) This campaign quotes both the rule of three (3/n) and exact
+    Clopper–Pearson (1 − 0.05^(1/n)) for the same "0 in n" bounds; they differ ~1 % relative.
+    Incrementing n under one and comparing to the other produced a bound that appeared to get
+    **worse** after observing a clean fire — an impossibility that was the only reason I noticed.
+    **Pick one estimator per quantity, name it at every quote site, and print both columns if the
+    document has been sloppy about it.** An impossible direction of movement is the cheapest bug
+    detector available; treat "that improved when it should have worsened" as a stop condition.
 
 ---
 

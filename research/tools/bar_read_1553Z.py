@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Re-read the standing bar from the diff field of terminal rows, 16:02Z 2026-08-11.
+"""Re-read the standing bar from the diff field of terminal rows, 15:53Z 2026-08-11.
 
 Finding (fern, #745 / manifest 6.7): the CLI `diff` column is *score - bar_at_adjudication*
 in RAW score units, and the printed percent is a units bug (|diff| / 1.003405, i.e. the raw
@@ -19,7 +19,7 @@ ROWS = [
 ]
 
 print("=" * 78)
-print("BAR RE-READ FROM TERMINAL ROWS  (poll at 2026-08-11 16:02Z)")
+print("BAR RE-READ FROM TERMINAL ROWS  (poll at 2026-08-11 15:53Z)")
 print("=" * 78)
 for label, score, diff, pct, t in ROWS:
     implied_bar = score - diff  # diff is negative when below the bar
