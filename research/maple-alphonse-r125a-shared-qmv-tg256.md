@@ -617,4 +617,14 @@ tree ships today. This is the same conclusion as §3, but reached on the
 *compiled default* rather than on an environment override, which is what the
 advisor's condition 1 was really asking about.
 
+**Paired wall, default-built vs explicitly driven.** Condition 4 is a plumbing
+assertion, not a performance question: if the compiled default really is the
+width that reaches the encoder, then a binary run with nothing set and the same
+binary run with `DARKBLOOM_SHARED_QMV_TG=256` are the *same configuration* and
+must be timing-indistinguishable. A systematic gap would mean one of two bugs —
+the compiled default is not actually reaching the dispatch, or the environment
+path takes a different route — and either would invalidate stage A's reading.
+Slots are mirrored `p1_dflt, p2_e256, p3_e256, p4_dflt` at 400 steps behind the
+40 C gate, so the two mirror pairs `p2−p1` and `p3−p4` cancel monotone drift.
+
 STAGE_B_WALL_PENDING
