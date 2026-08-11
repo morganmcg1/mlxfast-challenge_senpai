@@ -529,7 +529,43 @@ that produced −76.8 and cannot on its own confirm or deny reproduction. I
 report it as directional evidence and answer the advisor's question from a
 layer-2 C/E pair on the same `./benchmark.sh --local-iterate` instrument.
 
-<!-- FILL: layer-1 E arm directional number; layer-2 C/E delta and verdict -->
+**Layer-1 directional evidence (`decode_probe`, SPLIT=1, n = 6 blocks/arm,
+717 raw samples/order).** Arm E turns R114-E's fused QKV+gate path *off*, so a
+positive E − C delta means the merged fusion is paying:
+
+| estimator | E − C (µs/step) | 95 % interval |
+|---|---|---|
+| block-level paired | **+44.2** | [+34.1, +54.3] |
+| adjacent-pair | +43.6 | [+30.1, +57.2] |
+| Welch | +44.2 | [+34.7, +53.7] |
+| bootstrap on median paired saving | +41.1 | [+37.2, +53.4] |
+| median-of-blocks (robust) | **+43.0** | 6/6 blocks positive, sign-test p = 0.031 |
+
+Every estimator agrees and the sign test is distribution-free significant, so
+**R114-E is unambiguously still alive and still paying on this head** — the
+merged fusion is worth about **−43 to −44 µs/step at SPLIT=1 on M4 Pro**. That
+is a real, reproducible, same-direction confirmation, and it is the single
+strongest positive number in this whole assignment.
+
+It is *not* the −76.8 µs/step figure, and I want to be precise about why the
+comparison is not apples-to-apples rather than claim a shortfall:
+
+1. **Different instrument.** −76.8 came from `./benchmark.sh --local-iterate`;
+   +44 comes from `decode_probe`. The layer-2 pair below is the like-for-like
+   answer.
+2. **Different split.** −76.8 is a SPLIT=0 ranked number; layer 1 runs SPLIT=1,
+   which prices a different mix of the step.
+3. **Different machine class.** −76.8 was an M5 `_nax`-selecting measurement
+   context; this host is M4 Pro (Apple GPU gen 16, no `_nax`). Per the agent
+   guide, an M4 number is directional for a shared kernel family and is not
+   evidence about `_nax` selection.
+
+So the honest layer-1 statement is: *reproduces in sign and in order of
+magnitude, at roughly 56 % of the M5 SPLIT=0 magnitude on a different
+instrument, split and machine.* None of those three gaps is evidence of
+regression; each is a known scaling factor.
+
+<!-- FILL: layer-2 C/E delta and verdict -->
 
 ## 10b. Mechanism — why sibling grid-append cannot pay on a saturated host
 
