@@ -1,5 +1,34 @@
 # Maple → whoever holds the submission slot: one page, decision numbers only
 
+## 0i. ⇒ TERMINAL BANNER, 17:04Z — THE CHALLENGE IS CLOSED, AND ONE CLAIM BELOW IS WRONG
+
+> `mlxfast benchmark` at **17:03:44Z** prints the challenge state as **`closed`**, with
+> **`current best 2.6195531094824`** and `closes 8/11/26, 5:00 PM`. That final `current best` is
+> **bit-identical to the 13:51Z bar pin** carried throughout this document, so the pin held to close:
+> nothing better than `4ea72c3` ever landed, the in-flight row `60cd9ca` never adjudicated (29.9 min
+> at the last read), and the account closes at **179 rows — 107 rejected, 70 failed, 1 promoted,
+> 1 never adjudicated, zero acceptances**. Everything in §0h and below about firing, slot timing and
+> bar-reading is now **history, not instruction**.
+>
+> **Correction to §6a (error twelve, and it is mine).** The last paragraph of §6a used to end
+> "*a zero-threadgroup-memory register prefetch pays no such tax and was never tested*". **That is
+> false, and it was refutable from two records I already held.** One-deep register prefetch on the
+> *ranked* `fp_gather_qmm_rhs_expert_nax` k-loop was tested by **PR #215** and measured
+> **+0.684 ms slower (+1.52σ) ⇒ family closure**
+> (`research/advisor-r105-the-label-instrument-mis-ranks.md:299`,
+> `research/advisor-r105-the-routed-gather-gemm-is-memory-bound.md:445`; #215 §6.9 concluded the loop
+> is issue-limited and device-read latency is *not* exposed, per
+> `research/maple-tanjiro-r98-prefill-loader-pipeline.md:265`), and fern's #40 measured a second
+> independent null at **+0.4626 ms** (manifest §5-adjacent, `maple_endgame_handoff_manifest.md:600`).
+> The error was in the flattering direction — it advertised an open prize that my own tree had already
+> closed. **Do not spend a receipt on one- or two-deep register prefetch, Stage2, or existing
+> double-buffer variants on this kernel.** The corrected §6a paragraph is below.
+>
+> **What actually replaces it:** the operator's 17:03Z directive names two Maple lanes, and I priced
+> the primary one before closing. Verdict: **fixed BM16/WM1 is predicted negative, and the arithmetic
+> is an identity, not an estimate.** Run
+> `python3 research/tools/price_bm16_wm1_from_route_histogram.py`. Summary: **§6b** below.
+
 > ## ⇒ SUPERSEDING BANNER, 16:48Z (**§0h**): the slot is **NO LONGER FREE**. A submission `60cd9ca`
 > was created at **16:27Z** and is still `validating` at 16:48Z (20.5 min elapsed; §5's band is
 > ~15–25 min). The channel is serial, so **nothing else can be fired until it terminates**, and with
@@ -31,15 +60,19 @@
 > causal proof (§0e iv).
 
 Author: meridian (Maple research advisor). Written 2026-08-11 12:50Z, ≈4.2 h before close (17:00Z).
-Last updated 16:48Z (§0h supersedes the slot-free headline — one submission is in flight from 16:27Z, not ours; §0g, §0f, §0e, the receipt-census reading under arm 5, and the ranked-`_nax` prefill route noted just before §7;
+Last updated **17:05Z, after close** (**§0i** is terminal: `mlxfast benchmark` reports the challenge
+`closed` with `current best 2.6195531094824`, bit-identical to the 13:51Z pin; §0i also retracts the
+"register prefetch was never tested" claim in §6a as **error twelve**, and **§6b** prices the two
+research lanes the operator assigned Maple at 17:03Z. Earlier: §0h superseded the slot-free headline — one submission was in flight from 16:27Z, not ours; §0g, §0f, §0e, the receipt-census reading under arm 5, and the ranked-`_nax` prefill route noted just before §7;
 pointer/consistency pass — `python3 research/tools/handoff_linkcheck.py`
 now exits 0 on this file and on the manifest, and manifest §10(vii) records the two cited artifacts that
 live on closed-unmerged student branches rather than here). Every figure below is re-derived in
 `research/tools/slot_holder_arithmetic.py` (run it — it prints the source document's value next to the
-recomputed one). Depth, provenance and the **eleven** errors I made getting here are in
+recomputed one). Depth, provenance and the **twelve** errors I made getting here are in
 `research/maple_endgame_handoff_manifest.md`; section pointers are given per line. Read order if you
-are short of time: **§0g → §0e → §0c → §3** (§0f is §0g's earlier, confirming read; §0/§0d are
-superseded on the channel facts).
+are short of time: **§0i → §6b** for anything forward-looking (the challenge is over; those two are
+the only sections whose content outlives it), then **§0g → §0e → §0c → §3** for the historical
+reasoning (§0f is §0g's earlier, confirming read; §0/§0d are superseded on the channel facts).
 
 **Maple fires nothing.** This is not advice about who submits; it is the arithmetic Maple owes the
 campaign that does. Confirmed stood down at 16:03Z by local inspection (§0e i) and again at 16:27Z by
@@ -880,8 +913,87 @@ bytes costs **+18.2 % of W at 17.5σ**, against +4.7 % for extra MMA and +1.9 % 
 With prefill elasticity 0.362, **1 % off that window ≈ 0.16 % score**, i.e. above the ~0.11 % landing
 bar. Maple's own R110-B closed *threadgroup-memory* double buffering on this kernel — but only on M4,
 only on the non-`_nax` variant, and its own control shows the arm died of an occupancy tax (8→4
-resident threadgroups), not of a small prize. **A zero-threadgroup-memory register prefetch pays no
-such tax and was never tested.** If you have a day rather than an hour, that is where I would put it.
+resident threadgroups), not of a small prize.
+
+**~~A zero-threadgroup-memory register prefetch pays no such tax and was never tested.~~ RETRACTED
+17:04Z — see §0i.** It *was* tested, on the ranked kernel, by **PR #215**: **+0.684 ms (+1.52σ),
+family closure**, with #215 §6.9 concluding the k-loop is *issue*-limited and device-read latency not
+exposed. fern's #40 is a second independent null (+0.4626 ms). The staging-bound diagnosis in the
+paragraph above survives intact — what does not survive is my inference that *prefetch* is the lever
+that exploits it. Staging is bound by **issue and bytes**, and prefetch changes neither.
+
+### 6b. The two lanes the operator assigned Maple at 17:03Z, and the price of the first one
+
+The 17:03Z directive gave Maple the independent `_nax` utilization line (Cedar keeps `e27 + #690`,
+row-32 LM head, T5 carrier, attention composition). Both lanes require **official M5 candidate-leg
+evidence**, and the channel closed at 17:00Z, so neither could be run. What I *could* do without a
+receipt was execute the directive's own precondition — "*recover the actual 512-token routed
+run-length histogram; do not assume all experts receive exactly 16 rows*" — and price the primary
+hypothesis from it. The histogram **is** committed, at
+`research/artifacts/route-histogram-prefill512.csv` (9728 rows; note r106i cites it with a `.json`
+extension that does not exist, which is why it reads as missing). Tool:
+`research/tools/price_bm16_wm1_from_route_histogram.py`.
+
+**Lane 1 — short-run one-SIMDgroup expert `_nax` (BM64/WM4 → BM16/WM1, holding SM = BM/WM = 16).
+Predicted NEGATIVE. Do not fire it as specified.**
+
+The premise is half right, and the "16 rows" in it is **an arithmetic identity, not a measurement**:
+4096 rows/layer ÷ 256 experts = 16.0 exactly, so the mean is 16 by construction for *any* routing.
+The empirical distribution is nothing like a point mass at 16 — **median 7, p90 39, p99 142, max 505,
+stdev 28.77, and 20.26 % of pairs get zero rows** (mean over non-zero pairs 20.07). What *is* right is
+the short-run picture and its consequence: **63.7 % of non-zero pairs hold ≤16 rows**, and the
+idle-SIMDgroup census confirms the directive's reasoning precisely — **61.13 %** of BM64 threadgroups
+have only **1 of 4** SIMDgroups doing MMA, mean **1.6899 of 4 active ⇒ 57.8 % of SIMDgroup slots idle
+for MMA**.
+
+But two measured facts kill the arm as specified:
+
+1. **BM16/WM1 removes exactly ZERO MMA work.** Because 64 is an exact multiple of SM = 16, padded MMA
+   rows are **226 560 under both arms — bit-identical**. Idle SIMDgroups under BM64/WM4 already skip
+   MMA (the directive says so), so there is no MMA waste for BM16 to reclaim. The arm can only buy a
+   scheduling/residency effect.
+2. **The price of that scheduling effect is an identity, not an estimate.** Weight-staging incidence
+   is `Σ_e ceil(rows_e/BM)`: **8379 at BM64 → 14 160 at BM16 = 1.6899×**. That multiplier is
+   *numerically equal* to the mean-active-SIMDgroup count, because
+   `Σ_chunks ceil(chunk_rows/16) ≡ Σ_e ceil(rows_e/16)` whenever `BM % SM == 0`. **You recover idle
+   SIMDgroup slots and pay for them one-for-one in extra weight-staging passes** — and each pass is
+   carried by **0.42× the thread-issue** (32 threads instead of 128). On a kernel whose measured
+   sensitivity is **+18.2 % of W per staging unit vs +4.7 % per MMA unit** (R110-B, four bit-exact
+   receipts, 17.5σ), the exchange rate is **≈3.9:1 against the trade**. Under r106i's own traversal
+   model that is **14.83 → 25.06 GB weight traversal = +10.23 GB = +18.7 ms prefill ≈ −7.1 % score**.
+
+The directive anticipated a long-run regression and offered an adaptive BM16/BM64 split as the
+*follow-up*. The histogram says that is not a follow-up: **421 pairs (4.33 %) hold 31.91 % of all
+rows** at `rows_e > 64`, so long runs are a third of the work up front, and even the *short* runs pay
+the 1.69× staging tax. **If this lane is run at all, the first experiment must be staging-reuse
+co-design** — reduce WM while holding BM = 64 so the staged tile is still amortised over 64 rows, or
+share one staged tile across row-chunks — not a fixed BM drop. Two further in-tree facts for whoever
+picks it up: the non-`_nax` M4 path **already instantiates bm=16** (answering the directive's "check
+whether any retained variant already has this geometry"), and where it does it costs **1.7439×**
+weight traversal / 62.05 GB vs 31.00 GB, though by a different mechanism (its `grid.y` is not an
+expert id, so threadgroups straddle expert boundaries — an expert-aligned BM16 would not inherit
+*that* part). And `_nax` N-tile and `_nax` prefill swizzle depth are already pre-cleared dead
+(`research/CURRENT_RESEARCH_STATE.md:6054-6060`).
+
+**Caveat I will not let anyone drop:** the histogram is **one draw, one prompt, M4 Pro**, from
+reverted probe PR #11 (`3e8e435`), and r106i records a provenance conflict with `ceff917`
+(`maple-fern-r106i-prefill-traversal-census.md:544-553`). The *identity* in (1) is prompt-independent
+and holds regardless. The **1.6899× is draw-dependent in magnitude but not in sign**: since
+`ceil(r/16) ≥ ceil(r/64)` termwise, the multiplier is ≥1 for every possible routing, and it equals 1
+only if *every* expert run is ≤16 rows. The tax is therefore exactly a function of **routing
+dispersion** — zero under perfectly uniform routing, and 1.69× at the measured dispersion. A second
+draw on a different prompt can move the number; it cannot make the trade favourable.
+
+**Lane 2 — no-copy sorted-X continuation.** Not priced; I ran out of clock. The directive's framing is
+sound and matches the tree: the old `lhsIndices` negative is confounded by **kernel selection**, not
+by the idea — `GatherQMM::eval_gpu` routes simultaneous LHS/RHS indices through generic `gather_qmm`,
+which disables `gather_qmm_rhs_nax` / `fp_gather_qmm_rhs_expert_nax` entirely. **Prove that confound
+with an explicit kernel trace before writing any kernel code**; if the trace shows the generic path,
+the old negative measured the fallback, not the hypothesis. Sites:
+`Sources/MLXFastModel/LagunaRuntimeModel.swift` (`lagunaFusedSortedRoutedGateUp`, where `gatherSort`
+materialises `sortedX`), `Vendor/mlx-swift/Source/MLX/Ops.swift`
+(`gatherQuantizedMM(... lhsIndices:rhsIndices:)`), and `quantized.cpp` (`GatherQMM::eval_gpu` +
+expert-aligned admission). Keep it in a different student/PR/receipt from lane 1.
 
 ---
 

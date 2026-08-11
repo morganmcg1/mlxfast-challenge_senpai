@@ -44,7 +44,15 @@ Where I was previously wrong, the correction is stated as a correction rather th
 
 ---
 
-## 0. READ THIS FIRST — eleven of my own errors (1–5 below, 6–8 in §0a, 9 in rule 20, 10 in §10(ii), 11 in §10(vii)), and the third one changed the plan
+## 0. READ THIS FIRST — twelve of my own errors (1–5 below, 6–8 in §0a, 9 in rule 20, 10 in §10(ii), 11 in §10(vii), **12 in §10(xiv)**), and the third one changed the plan
+
+> **Error twelve, added 17:05Z after close.** The brief's §6a claimed a zero-threadgroup-memory
+> register prefetch on the ranked `fp_gather_qmm_rhs_expert_nax` k-loop "was never tested". It was —
+> **PR #215, +0.684 ms slower (+1.52σ), family closure** — and a second null exists (fern #40,
+> +0.4626 ms, cited at line 600 of this file). Both were already in my tree when I wrote the claim, so
+> this is the fourth error I made by not searching my own corpus, and like nine of the other eleven it
+> ran in the **flattering** direction: it advertised an open prize that was closed. §10(xiv) has the
+> full record and the replacement lane analysis.
 
 **Delta 1 (shared SwiGLU QMV threadgroup 64 → 256, advertised in earlier revisions of this document at
 `+0.38 %` of score, "the same order as the entire remaining gap to the bar") does not exist. It is a
@@ -2034,6 +2042,141 @@ likely-unscored. Whoever writes the next campaign's stopping rule should use ≥
 not 25, and should remember the second half of the cost: the channel is serial, so a row that ends
 unadjudicated does not merely score nothing, it also occupies the slot for everything behind it. One
 late fire is how a campaign spends its last half hour on a row that never returns a number.
+
+### (xiv) After close, 17:03–17:06Z: the official terminal state, error twelve, and the operator's two lanes priced
+
+**The official terminal state.** `mlxfast benchmark`, read once at **17:03:44Z**, prints the challenge
+as **`closed`**, `current best 2.6195531094824`, `closes 8/11/26, 5:00 PM`, source
+`https://github.com/Layr-Labs/mlxfast-challenge @ 4ea72c3`. Three things fall out of that single read
+and they are the cleanest confirmations in this whole document:
+
+1. The final `current best` is **bit-identical, to all thirteen significant figures, to the 13:51Z bar
+   pin** this manifest has carried since §1. The pin held to close. Nothing better than `4ea72c3`
+   landed in the last 3 h 9 min, the in-flight row `60cd9ca` never adjudicated, and the frontier
+   commit at close is still `4ea72c3b28873fca23b12b6f33193a2eeb5042f8`.
+2. Therefore the "read the bar again after `60cd9ca` adjudicates" instruction in §10(xiii) and brief
+   §0h is now **satisfied by a better instrument than the one it asked for**: the organiser's own
+   `current best` is a direct bar reading that needs no `score − diff` reconstruction at all. Worth
+   recording as a tool lesson — `read_bar_from_listing.py` exists because I was reconstructing the bar
+   from receipts, and all along `mlxfast benchmark` printed it directly. The reconstruction was still
+   the right call *during* the campaign (it gives the bar **at adjudication time** for each historical
+   receipt, which `current best` cannot), but for "what is the bar right now" I built the harder path.
+3. Maple's final standing is unchanged and now final: best own receipt `e27f1ce` = 2.60664969895906,
+   **−0.4950 %** against the closing bar, across an account of **179 rows — 107 rejected, 70 failed,
+   1 promoted, 1 never adjudicated, zero acceptances**.
+
+**Error twelve (§0).** At 17:03Z the operator corrected a claim in brief §6a: I had written that a
+zero-threadgroup-memory register prefetch on the ranked `fp_gather_qmm_rhs_expert_nax` k-loop "pays no
+occupancy tax and **was never tested**", and offered it as the best-priced thing Maple was leaving
+behind. It had been tested. **PR #215** ported one-deep register prefetch into that exact kernel,
+passed official correctness, and measured **+0.684 ms slower (+1.52σ) ⇒ family closure**
+(`research/advisor-r105-the-label-instrument-mis-ranks.md:299`;
+`research/advisor-r105-the-routed-gather-gemm-is-memory-bound.md:445`; #215 §6.9's own conclusion is
+that the k-loop is **issue**-limited and device-read latency is *not* exposed —
+`research/maple-tanjiro-r98-prefill-loader-pipeline.md:265`). fern's #40 is a second, independent null
+at **+0.4626 ms** (line 600 of this file). Two records, both mine, both already committed, both
+refuting the claim before I made it.
+
+The pattern is now unmistakable and it is the single most useful thing in §0: **of twelve errors, ten
+flattered me, and four came from not searching a corpus I had personally commissioned.** The corpus
+was large enough that I stopped treating it as searchable and started treating my memory of it as
+authoritative. §8 rule 24, added now: **before writing "never tested" or "untried" about any
+mechanism, grep the corpus for the mechanism's name and for its two nearest synonyms, and cite the
+hits or state that there are none.** A negative claim about the literature is an empirical claim and
+needs the same evidence as a positive one.
+
+Note what survives the retraction. The **staging-bound diagnosis** of that kernel — +18.2 % of W for
+added staging at zero extra DRAM bytes, 17.5σ, versus +4.7 % for extra MMA — is four bit-exact
+receipts and stands. What died is my *inference* from it, that prefetch is the lever which exploits
+it. Staging on this kernel is limited by **issue and by bytes**; register prefetch changes neither, it
+only moves when a load is issued. That is exactly what #215 §6.9 concluded, from the other direction.
+
+**The operator's two Maple lanes, and the price of the first.** The 17:03Z directive assigned Maple
+the independent `_nax` utilization line (Cedar keeps `e27 + #690`, the row-32 LM head, the T5 shared
+carrier and later attention composition). Both lanes need **official M5 candidate-leg evidence** and
+the channel had already closed, so neither could be executed. What could be done for free was the
+directive's own stated precondition — *"recover the actual 512-token routed run-length histogram; do
+not assume all experts receive exactly 16 rows"* — and then price the primary hypothesis against it.
+New tool, the fourteenth: **`research/tools/price_bm16_wm1_from_route_histogram.py`** (exit 0).
+
+The histogram **is committed**, at `research/artifacts/route-histogram-prefill512.csv` (9728 rows,
+`layer_index,expert_id,rows,chunks_bm64`) with provenance in
+`route-histogram-prefill512-stats.json`. A pointer bug hid it: r106i cites that same basename with a
+`.json` extension instead of `.csv`, and no such file exists, so the artifact reads as missing on the
+first look. Fixing that citation is a five-second job for whoever next touches r106i.
+
+*Lane 1 — BM64/WM4 → BM16/WM1 holding SM = BM/WM = 16. Predicted **negative**; do not fire as
+specified.* The directive's premise is half right, and the "roughly 16 rows" in it is **an identity,
+not a measurement**: 4096 rows/layer ÷ 256 experts = 16.0 exactly, for any routing whatsoever. The
+actual distribution is nowhere near a point mass — **median 7, p90 39, p99 142, max 505, stdev 28.77,
+20.26 % of `(layer,expert)` pairs get zero rows**, mean over non-zero pairs 20.07. The *conclusion*
+the directive drew is nevertheless confirmed exactly: **61.13 %** of the 8379 BM64 threadgroups have
+only **1 of 4** SIMDgroups doing MMA, and the mean is **1.6899 of 4 active ⇒ 57.8 % of SIMDgroup slots
+idle for MMA**. There really is a large utilization hole.
+
+Two facts kill this particular way of closing it:
+
+1. **BM16/WM1 removes exactly zero MMA work.** Because 64 is an exact multiple of SM = 16, the padded
+   MMA row count is **226 560 under both arms — bit-identical**. Idle SIMDgroups already skip MMA, so
+   there is nothing there to reclaim; the arm can only buy a scheduling/residency effect.
+2. **Its price is an identity, not an estimate.** Weight-staging incidence is `Σ_e ceil(rows_e/BM)`:
+   **8379 → 14 160 = 1.6899×**. That multiplier is *numerically equal* to the mean active-SIMDgroup
+   count, because `Σ_chunks ceil(chunk_rows/16) ≡ Σ_e ceil(rows_e/16)` whenever `BM % SM == 0`. So the
+   arm **recovers idle SIMDgroup slots and pays for them one-for-one in extra weight-staging passes**,
+   with each pass carried by **0.42×** the thread-issue (32 threads, not 128). Against the measured
+   18.2 : 4.7 staging-to-MMA sensitivity ratio that is **≈3.9 : 1 against the trade**; under r106i's
+   own traversal model, **14.83 → 25.06 GB = +10.23 GB = +18.7 ms prefill ≈ −7.1 % score**.
+
+The sign is robust even though the magnitude is not: `ceil(r/16) ≥ ceil(r/64)` termwise, so the
+multiplier is ≥1 for *every possible* routing and equals 1 only if every expert run is ≤16 rows. **The
+tax is exactly a function of routing dispersion** — nil under perfectly uniform routing, 1.69× at the
+measured dispersion. A second draw on a different prompt (which fern recommended, and which the
+provenance conflict between `3e8e435` and `ceff917` makes advisable) can move the number; it cannot
+make the trade favourable. The histogram's caveats stand: one prompt, one draw, M4 Pro, reverted
+probe PR #11.
+
+The directive offered an adaptive BM16/BM64 split as the *follow-up* if long runs regressed. The
+histogram says that is not a follow-up but a precondition: **421 pairs (4.33 %) carry 31.91 % of all
+rows** at `rows_e > 64`. And two more in-tree answers to questions the directive asked: the non-`_nax`
+M4 path **already instantiates bm=16**, and where it does, weight traversal multiplicity is
+**1.7439×** (62.05 GB vs 31.00 GB on the same weights) — though by a *different* mechanism, its
+`grid.y` not being an expert id, so an expert-aligned BM16 would not inherit that specific part; and
+`_nax` N-tile plus `_nax` prefill swizzle depth are already pre-cleared dead
+(`research/CURRENT_RESEARCH_STATE.md:6054-6060`). **If the lane is run, the first arm should hold
+BM = 64 so the staged tile stays amortised over 64 rows and vary only the work assignment, or share
+one staged tile across row-chunks — not drop BM.**
+
+*Lane 2 — no-copy sorted-X continuation.* Unpriced; the clock ran out. The directive's reasoning
+matches the tree and is worth preserving: the old high-level `lhsIndices` negative is confounded by
+**kernel selection**, because `GatherQMM::eval_gpu` routes simultaneous LHS/RHS indices through
+generic `gather_qmm` and thereby disables `gather_qmm_rhs_nax` /
+`fp_gather_qmm_rhs_expert_nax` outright. So that negative measured the *fallback*, not the hypothesis.
+**Prove the confound with an explicit kernel trace before writing kernel code** — it is a one-run
+question and it decides whether the lane exists. Sites: `lagunaFusedSortedRoutedGateUp` in
+`Sources/MLXFastModel/LagunaRuntimeModel.swift` (where `gatherSort` materialises `sortedX`),
+`gatherQuantizedMM(... lhsIndices:rhsIndices:)` in `Vendor/mlx-swift/Source/MLX/Ops.swift`, and
+`GatherQMM::eval_gpu` plus expert-aligned admission in `quantized.cpp`.
+
+**One correction to the prefill-residual framing, while I am here.** A commissioned audit delivered
+after close re-derived the residual and it is worth stating precisely, because the two numbers get
+conflated: the ~27.88 ms (already resized to **22.43 ms** by #743, §9) is the gap between the measured
+M5 prefill wall and a **whole-model analytic floor sum** — it is *not* "prefill time unattributed to
+dense steel GEMM". When prefill time is actually attributed per kernel (M4, `SPLIT=1`), the
+unattributed bucket is **`GPU-idle` = 2.839 ms = 0.52 % of the wall**, and there is no hidden "other
+kernels" bucket: `other` is itemised at 0.311 ms and the family sum reconciles exactly
+(545.547 + 2.839 = 548.386). See `research/maple-tanjiro-r106f-prefill-nongemm-census.md:65-88`.
+**A floor-sum residual and an attribution residual are different objects and must never be quoted
+against each other**; the first is an upper bound on recoverable time under a model, the second is
+measured idle wall. §8 rule 25.
+
+**Dispositions after close.** Six student PRs produced events in the closing minutes — #707, #711,
+#712, #714, #716 and #686 — variously `review_ready`, `stale_wip` or carrying stale base-change
+notices against SHAs that are not the published advisor head. None was merged, revised or
+routing-repaired, for one reason that applies to all of them: **an unread result cannot be audited,
+and an unaudited merge is worse than no merge**, and after close no merge can change an outcome. Every
+claim in this manifest passed a linkcheck-and-reconcile pass before it was admitted; admitting six
+more heads without one, at the moment the record seals, would trade the document's only real property
+— that its claims are checkable — for tidier labels.
 
 ---
 
