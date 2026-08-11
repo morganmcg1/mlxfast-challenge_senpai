@@ -7812,11 +7812,7 @@ static inline float laguna_nvfp4_qdot_codes_16_table(
 """
 }()
 
-private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
-    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
-    inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
-    outputNames: ["activated"],
-    source: """
+private let lagunaRoutedSwiGLUQMVPackedTop8R1Source = """
 constexpr uint input_width = 2048;
 constexpr uint output_width = 512;
 constexpr uint block_width = 512;
@@ -7921,11 +7917,61 @@ if (lane == 0) {
     activated[expert_slot * output_width + logical_row] =
         bfloat(silu * up);
 }
-""",
+"""
+
+private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
+    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
+    inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
+    outputNames: ["activated"],
+    source: lagunaRoutedSwiGLUQMVPackedTop8R1Source,
     header: lagunaSharedSwiGLUQMVHeader + "\n" + lagunaNvfp4CodeAlphabetHeader
         + "\n" + lagunaDecodeRouterOrdinalHeader + "\n" + lagunaRouterTop8PrologueHeader,
     ensureRowContiguous: true
 )
+
+private let cedarGate1LagunaRoutedSwiGLUQMVPackedTop8R1ControlKernel = MLXFast.metalKernel(
+    name: "cedar_gate1_laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_control",
+    inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
+    outputNames: ["activated"],
+    source: lagunaRoutedSwiGLUQMVPackedTop8R1Source,
+    header: lagunaSharedSwiGLUQMVHeader
+        + "\n#define laguna_nvfp4_qdot_codes_16_table laguna_nvfp4_qdot_codes_16\n"
+        + lagunaDecodeRouterOrdinalHeader + "\n" + lagunaRouterTop8PrologueHeader,
+    ensureRowContiguous: true
+)
+
+func cedarGate1LagunaRoutedSwiGLUQMVPackedTop8(
+    _ input: MLXArray,
+    fusedWeight: MLXArray,
+    packedScales: MLXArray,
+    routerKeys: MLXArray,
+    useTable: Bool
+) -> MLXArray {
+    precondition(input.dtype == .bfloat16)
+    precondition(input.dims(1, 1, LagunaConstants.hiddenSize))
+    precondition(fusedWeight.dtype == .uint32)
+    precondition(packedScales.dtype == .uint8)
+    precondition(packedScales.size == lagunaPackedRoutedGateUpScaleBytes)
+    precondition(routerKeys.dtype == .uint32)
+    precondition(routerKeys.size == LagunaConstants.numExperts)
+
+    let inputs = [input, fusedWeight, packedScales, routerKeys]
+    let grid = (LagunaConstants.numExpertsPerTok * 256 * 64, 1, 1)
+    let outputShapes = [[
+        1, 1, LagunaConstants.numExpertsPerTok, 1,
+        LagunaConstants.moeIntermediateSize,
+    ]]
+    let kernel = useTable
+        ? lagunaRoutedSwiGLUQMVPackedTop8R1Kernel
+        : cedarGate1LagunaRoutedSwiGLUQMVPackedTop8R1ControlKernel
+    return kernel(
+        inputs,
+        grid: grid,
+        threadGroup: (64, 1, 1),
+        outputShapes: outputShapes,
+        outputDTypes: [.bfloat16]
+    )[0]
+}
 
 func lagunaRoutedSwiGLUQMVPackedTop8(
     _ input: MLXArray,
