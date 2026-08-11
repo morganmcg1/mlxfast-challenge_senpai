@@ -637,6 +637,28 @@ re-draw of an unchanged best-known tree is a real shot at the bar. σ(one offici
 (At the more pessimistic σ = 0.59 % from `--local-submit` dispersion: 20.1 % / 36.1 % / 48.9 %. At the
 optimistic σ = 0.37 %: 9.1 % / 17.3 % / 24.8 %.)
 
+**The honest limit on that table, and it is a real one: σ(one official draw) has never been measured by
+replication on this channel.** I parsed the full my-submissions listing at 11:52Z — **106 draws,
+0 repeated commits**. In 106 official draws this account has never once fired the same commit twice, so
+every σ we quote is imported from local instrumentation (`--local-submit` σ ≈ 5.9 %,
+`--local-iterate` σ = 33.6 %, decode-leg cv 0.30–0.32 %) and propagated through the score model, never
+validated end-to-end against the official harness. Do not quote `0.49 %` as measured. The defensible
+statement is the σ-conditional band: **a free slot is worth ~9–20 % of a crown, most likely ~15 %.**
+That band is wide but its floor is still larger than anything else available in the closing hours.
+
+Two further consequences worth acting on:
+
+- **A repeat draw is doubly valuable.** It takes the ~15 % shot *and* it produces the first replicate
+  pair on the official channel, i.e. the first honest measurement of the σ that every schedule
+  decision in this document depends on. If the slot's owner is going to fire the incumbent anyway,
+  firing the *exact same commit* as a previous draw is strictly more informative than a cosmetic edit.
+- Corpus facts from the same parse, for whoever needs them: n = 106, statuses `{rejected, promoted}`,
+  single `promoted` row **`97a5090` at 2.58882784 (commit `3e165fa5`, 8/6 05:04Z)** — promotion is
+  against the *bar of the day*, so a 2.5888 promoted then and a 2.60665 rejected now is consistent, and
+  is the cleanest evidence in the corpus that the bar has been rising under us. Top-10 distinct-tree
+  scores: mean 2.595690, sd 0.004625 (0.178 %) — that is the dispersion of an order-statistic tail
+  across *different* trees, so it is not σ and must not be used as σ.
+
 **Therefore: on this instrument the marginal value of a draw does not come from the delta you put in
 it.** It comes from the variance. A campaign holding *zero* new deltas — which is exactly where Maple
 ended up — still converts each free slot into ~15 % of a crown by re-firing the best tree it already
