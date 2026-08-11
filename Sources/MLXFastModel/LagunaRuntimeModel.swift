@@ -11589,11 +11589,11 @@ final class LagunaRuntimeModelInner: Module {
                 if isSingleTokenDecode, (decodeFireMask >> UInt64(i)) & 1 == 1 {
                     asyncEval(h)
                 }
-                if lagunaPrefillAsyncLadderStride > 0, h.dim(1) > 1,
-                    (i + 1) % lagunaPrefillAsyncLadderStride == 0
-                {
-                    asyncEval(h)
-                }
+            }
+            if lagunaPrefillAsyncLadderStride > 0, !isSingleTokenDecode,
+                (i + 1) % lagunaPrefillAsyncLadderStride == 0
+            {
+                asyncEval(h)
             }
             lagunaInjectLayerWork(layer: i, isSingleTokenDecode: isSingleTokenDecode)
         }
