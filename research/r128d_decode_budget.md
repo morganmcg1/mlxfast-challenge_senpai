@@ -270,3 +270,45 @@ What each component can and cannot mean, stated before looking at the numbers:
   a command buffer are counted as busy. `busy_union` is therefore an **upper
   bound** on useful GPU work, and the gap is a **lower bound** on non-busy time.
 
+### The one gate that decides item 2 before any decomposition
+
+Item 2's arithmetic transplants a busy number from program B into a wall number
+from program A. That transplant is only admissible if
+
+```
+busy_union(instrumented) <= wall(uninstrumented)
+```
+
+on a comparable host and window, because instrumenting a run cannot make the
+GPU do *less* work, and busy time can never exceed the wall of the same work.
+This gate needs no gap decomposition and no attribution model — it is a
+sanity check on the subtraction itself.
+
+## D4 — Reconciliation with the other reported decode figures
+
+Every µs/step number in circulation is quoted below with its host, binary,
+window and apparatus, because Rule 9 is exactly the discipline item 2 skipped.
+
+| figure (µs/step) | host | apparatus | window | provenance |
+| --- | --- | --- | --- | --- |
+| 8919 | unknown | unknown | unknown | **no primary record** (D0) |
+| 8567 | unknown (R87-A control host) | hooked worker, `GPU_PROFILE=1` **and** `SPLIT=1` | 200 steps | `research/r87a-runs/control.json` arm `A0`, `busy_union_us.mean`; its own paired wall was **9814.7 µs** |
+| 8882 | nezuko #730 host | trusted harness `--local-submit` | 1023 steps | currency 0.00845 %/µs |
+| 8213 | frieren #733 host | control arm | — | currency 0.00913 %/µs |
+| 4910.9 | ranked M5 | official | — | currency 0.01527 %/µs |
+| 8171.1 ± 3.3 | **this M4 Pro** | direct probe, unpatched worker | 128 steps | D1, J1 |
+| 8296.3 ± 17.5 | **this M4 Pro** | direct probe, unpatched worker | 1023 steps | D1, J1 |
+| 8374–8587 | **this M4 Pro** | trusted harness `--local-iterate` | 128 steps | D1, derived from `decode_seconds_per_token` |
+
+Two structural corrections fall straight out of this table and apply to any
+future comparison, independently of item 2:
+
+1. **Window length is worth ~125 µs** between a 128-step and a 1023-step
+   window on this host (D1, slope 259.9 µs/1000 steps). A `--local-submit`
+   number and a `--local-iterate` number are not the same quantity.
+2. **Apparatus is worth up to ~416 µs** between the trusted harness and a
+   direct probe on the same host and window (D1).
+
+Both corrections are individually comparable to, or larger than, the ~350 µs
+that item 2 reports as a discovered inefficiency.
+
