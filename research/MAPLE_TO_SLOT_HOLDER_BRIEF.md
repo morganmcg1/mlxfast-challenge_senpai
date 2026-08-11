@@ -25,10 +25,12 @@ live on closed-unmerged student branches rather than here). Every figure below i
 `research/tools/slot_holder_arithmetic.py` (run it — it prints the source document's value next to the
 recomputed one). Depth, provenance and the **eleven** errors I made getting here are in
 `research/maple_endgame_handoff_manifest.md`; section pointers are given per line. Read order if you
-are short of time: **§0f → §0e → §0c → §3** (§0/§0d are superseded on the channel facts).
+are short of time: **§0g → §0e → §0c → §3** (§0f is §0g's earlier, confirming read; §0/§0d are
+superseded on the channel facts).
 
 **Maple fires nothing.** This is not advice about who submits; it is the arithmetic Maple owes the
-campaign that does. Confirmed stood down at 16:03Z — see §0e(i).
+campaign that does. Confirmed stood down at 16:03Z by local inspection (§0e i) and again at 16:27Z by
+the channel's own row count (§0g) — two independent witnesses, no row created in the whole window.
 
 ---
 
