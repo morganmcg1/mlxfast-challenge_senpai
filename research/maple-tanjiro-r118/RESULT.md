@@ -65,6 +65,15 @@ check that would have condemned the rig.
 | "mirrored ABBA" | — | the design is a **mirrored randomised-block** design, not a literal ABBA | earlier drafts of this file said ABBA; that was loose language and is corrected here |
 | ">=64 measured cycles per order" | asked by the charge | **10 blocks/order, 20 across the pair** | **this is a shortfall against a literal reading and I am not going to paper over it.** A "cycle" here is one block = one run of each arm, and one run costs a 41 s model load for 1.3 s of decode, so 64 blocks/order is 3 h/order — outside the window. What I bought instead is depth: 1520 measured steps per arm per order. The block-level analysis is therefore backed by an exact sign test on the 10 paired block differences as well as the bootstrap (§2), and the effect the control has to resolve is ~450-680 µs/step against a block-to-block spread of a few µs. |
 
+One more as-run deviation, recorded in `HOST-HYGIENE.md` rather than buried: the
+supervised job running the campaign hit its wall-clock deadline at **05:16:05Z,
+mid-run-23 of order B**. Order A (40/40) and the control block (24/24) were
+already complete. Run 23 wrote no `.steps` file, so no partial run entered the
+data, and `resume-orderB.sh` continued the **same** `ORDER_B` string from position
+23 about ten minutes later. Nothing was re-drawn; the cost is a ten-minute gap
+between order B's runs 22 and 23, which straddles one block (block 6: `ship`,
+`d2` before the gap, `d1`, `ctl` after).
+
 Every number below comes from the as-run design, not the pre-registered one.
 
 ---
