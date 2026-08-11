@@ -34,6 +34,92 @@ behaviourally and dispatch-identical to the base unless the variable is set.
 
 *(measurement summary filled in from §1)*
 
+## 0b. The portable hunk
+
+The advisor's top-priority deliverable is "the smallest hunk that sets shared-QMV
+threadgroup granularity to 256, applicable by someone else to a tree that does not
+contain edward's #712 fused-kernel merge". Three patch files are committed; all
+touch only `Sources/MLXFastModel/LagunaRuntimeModel.swift`.
+
+| file | applies to | verified against | lines |
+| --- | --- | --- | --- |
+| `research/r125a-tg256-core.patch` | trees **with** #712 (current frontier) | `18ac6015` — 5/5 hunks, offset `+8` | 103 |
+| `research/r125a-tg256-core-pre712.patch` | trees **without** #712 | `29a79361^` — 5/5 hunks, offset `0` | 109 |
+| `research/r125a-tg256-fused-guard.patch` | **only** trees with #712 | `18ac6015` — 1/1 hunk, offset `-35` | 12 |
+
+`git apply --check` was run for each row above; the two core patches were also
+applied for real and the resulting file inspected. Every hunk lands with fuzz `0`.
+
+### Anchors (symbol + line on the delivery base `18ac6015`, file unpatched)
+
+| # | anchor symbol | line | what the hunk does |
+| --- | --- | --- | --- |
+| 1 | `let lagunaSharedQMVWideCodesEnabled` | 332 | insert `lagunaSharedSwiGLUQMVThreadgroupWidth` immediately after this declaration; reads `DARKBLOOM_SHARED_QMV_TG` ∈ {64,128,256}, default **64** |
+| 2 | `private func lagunaSharedSwiGLUQMVRows1Source(` | 7139 | add defaulted parameter `simdgroupsPerThreadgroup: Int = 2` |
+| 3 | `uint row = tile * 2 + simd_group;` (the **first** of two occurrences; the one inside anchor 2's body — the second, 7263, belongs to the routed kernel and must not be touched) | 7169 | emit `tile * \(simdgroupsPerThreadgroup)` instead of the literal `2` |
+| 4 | `private let lagunaSharedSwiGLUQMVRows1HalvedKernel` | 7232 | add two sibling kernel constants `…HalvedTG128Kernel` / `…HalvedTG256Kernel` with **distinct Metal names** (`…_tg128_bf16_v1`, `…_tg256_bf16_v1`) at 4 and 8 simdgroups |
+| 5 | `func lagunaSharedSwiGLUQMV(` | 7334 | derive `threads`, pick the kernel by `threads`, set `tiles = sharedExpertIntermediateSize / (threads / 32)`, dispatch `grid: (tiles * threads, 1, 1)` / `threadGroup: (threads, 1, 1)` |
+| G | `func lagunaSharedRoutedSwiGLUQMV(` | 8218 | *(guard patch only)* add `lagunaSharedSwiGLUQMVThreadgroupWidth == 64,` to the eligibility list so #712's fused path declines when TG ≠ 64 |
+
+Anchor 4 is the non-obvious one: MLX caches compiled libraries **by kernel name**,
+so reusing `laguna_shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1` for a second
+threadgroup width silently returns the first-compiled body and the experiment
+measures nothing. Each width needs its own name.
+
+Byte budget on the delivery base: `LagunaRuntimeModel.swift` goes 396 910 →
+398 903 B (**+1 993**), under both the 524 288 B per-file cap and the 262 144 B
+per-review growth cap.
+
+### Why the split exists — the #712 collision
+
+Anchors 2 and 3 are the only ones that differ across the #712 boundary. #712
+(`29a79361`, R119-B grid-append) rewrote `lagunaSharedSwiGLUQMVRows1Source`
+from `(halved: Bool) -> String` into a four-parameter generator with
+`weightName` / `scalesName` / `outputName` defaults, and correspondingly
+parameterised the weight-pointer lines that sit in anchor 3's trailing context.
+Hunk-by-hunk `git apply --check` on `29a79361^` confirms this precisely:
+hunks 1, 4 and 5 apply unchanged, hunks 2 and 3 do not. `…-core-pre712.patch`
+is the same change re-expressed against the one-parameter signature. Both core
+patches are otherwise identical in effect, and neither depends on the fused
+kernel existing.
+
+The guard patch is the only piece with a real #712 dependency, and it is not
+part of the mechanism — it exists so a tree that has *both* changes cannot
+dispatch #712's 64-thread-only fused kernel while `DARKBLOOM_SHARED_QMV_TG`
+asks for a wider threadgroup. On a tree without #712 it must be skipped, and
+`git apply --check` refuses it there, which is the desired failure mode.
+
+### Could #712's fused kernel be re-tiled for 256-thread threadgroups?
+
+Not by changing a constant, and not worth doing. The fused kernel hardcodes
+`constexpr uint laguna_shared_tiles = 256;` (LRM:8201 on `18ac6015`) and is
+dispatched at 64 threads/threadgroup because a grid-append shares **one**
+threadgroup size across both halves of the dispatch: the routed top-8 QMV half
+and the appended shared half. Widening to 256 threads therefore requires
+(a) re-parameterising the *routed* generator's row mapping and per-simdgroup
+reduction the same way I parameterised the shared one — the routed half is what
+pins 64 threads, not the shared half; (b) recomputing `laguna_shared_tiles` as
+`sharedExpertIntermediateSize / (threads / 32)`, i.e. 64 rather than 256, and
+re-deriving the tile-offset arithmetic that separates routed tiles from shared
+tiles in the appended grid, in the new tile units; and (c) absorbing a 4×
+larger threadgroup-scratch footprint for the cross-simdgroup reduction (8
+partial sets instead of 2), which fits but moves occupancy. That is a
+simultaneous rewrite of two kernels whose correctness is currently protected by
+the fact that neither is reachable by default. And the payoff is negative
+twice over: §1 shows the 256-thread shared geometry is itself ~1.6 % slower per
+shared-QMV step on this base (§5 ranked-equivalent ≈ +2.9 µs/step), and the
+grid-append fusion the re-tiling would enable was already measured end-to-end as
+a loss (`+27.024 us/token`, verdict `N-GRIDAPPEND-SECOND-INSTANCE-BELOW-BAR`,
+§2b). I did not build it, per the assignment.
+
+### Recommendation
+
+Do not apply any of these patches as a default change. If a future student
+wants the arms on a different base, apply the core patch matching the tree
+shape, add the guard patch iff the tree has #712, and drive it with
+`DARKBLOOM_SHARED_QMV_TG`; the default stays `64` and the shipped dispatch is
+unchanged.
+
 ## 1. Replication on the maple base
 
 *(pending)*

@@ -1,0 +1,12 @@
+diff --git a/Sources/MLXFastModel/LagunaRuntimeModel.swift b/Sources/MLXFastModel/LagunaRuntimeModel.swift
+index 1da877fc..5df0ac2b 100644
+--- a/Sources/MLXFastModel/LagunaRuntimeModel.swift
++++ b/Sources/MLXFastModel/LagunaRuntimeModel.swift
+@@ -8219,6 +8262,7 @@ func lagunaSharedRoutedSwiGLUQMV(
+         lagunaSharedSwiGLUQMVRows1Enabled,
+         lagunaRoutedGateUpR1Enabled,
+         !lagunaSharedQMVWideCodesEnabled,
++        lagunaSharedSwiGLUQMVThreadgroupWidth == 64,
+         input.dtype == .bfloat16,
+         input.dims(1, 1, LagunaConstants.hiddenSize),
+         sharedWeight.dtype == .uint32,
