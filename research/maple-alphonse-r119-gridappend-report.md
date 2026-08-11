@@ -630,12 +630,102 @@ failure. The pass-1 finding stands and the stop rule is not triggered.
 
 ## 8. Results — layer 2 (ranked shape) and the prefill gate
 
-<!-- FILL: decode_s_per_token, prefill_s_per_token, passed_correctness -->
+Design: 8 full `./benchmark.sh --local-iterate` runs, `MLXFAST_LOCAL_FAN_PROMPT=0`
+(SPLIT=0, the ranking configuration), order **`C E G C | C G E C`** — a mirrored
+ABBA with C at both ends of each half. One binary, env-switched, as in layer 1.
+Driver `research/maple-alphonse-r119-gridappend-bench-abba.sh`, analysis
+`research/maple-alphonse-r119-gridappend-layer2-stats.py`, raw TSV
+`/tmp/r119-gridappend-bench.tsv`. Runtime 1208 s, exit 0.
 
-Prefill is a **gate**: >0.15 % regression with an interval excluding zero ⇒ no
-ship. A single unpaired earlier observation showed prefill speedup 0.323, which
-is almost certainly a cold/unpaired artifact rather than a real regression;
-this section resolves it paired.
+**All 8 runs report `passed_correctness: true`.** No arm produced an `error`.
+
+### 8.1 Decode
+
+| arm | n | mean µs/token | Δ vs C | rel | 95 % CI (pooled) |
+| --- | --- | --- | --- | --- | --- |
+| C | 4 | 12869.095 | — | — | sd 66.839 |
+| **G** (both instances) | 2 | 12896.119 | **+27.024** | +0.210 % | [−70.8, +124.9] |
+| **E** (R114-E off) | 2 | 12912.996 | **+43.900** | +0.341 % | [−53.9, +141.7] |
+
+Mirrored halves reported separately, each against its own local C mean:
+
+| half | order | G | E |
+| --- | --- | --- | --- |
+| forward (1–4) | C E G C | +46.240 | +6.854 |
+| mirror (5–8) | C G E C | +7.808 | +80.947 |
+
+**4/4 arm-halves positive** (one-sided sign test p = 0.0625). Both arms carry the
+same sign as layer 1, and E's layer-2 point estimate (+43.900) lands within
+0.7 % of its layer-1 estimate (+44.2) from a completely independent harness.
+
+Neither layer-2 interval excludes zero, and that is the expected result rather
+than a disappointment. The pooled within-arm sd is **57.6 µs/token**, so
+resolving a +13.6 µs/step effect at 95 % would need
+`n = 2·(1.96·57.637/13.6)² ≈ 138 runs per arm` — about 11.5 h of wall clock.
+Layer 2 is a *ranked-shape sanity and gate* check; layer 1 (n = 12 blocks,
+2 868 raw samples/arm) is and must remain the estimator. Layer 2's job here is
+to confirm that the layer-1 effect does not reverse on the real harness, and it
+does not.
+
+### 8.2 Prefill gate — and why this axis is a negative control
+
+| arm | n | mean µs/token | Δ vs C | rel | per-arm CI | pooled CI |
+| --- | --- | --- | --- | --- | --- | --- |
+| C | 4 | 1113.828 | — | — | sd 5.738 | — |
+| **G** | 2 | 1123.718 | +9.890 | **+0.888 %** | [+4.26, +15.52] | [−6.2, +26.0] |
+| **E** | 2 | 1124.447 | +10.619 | **+0.953 %** | [−16.0, +37.2] | [−5.5, +26.7] |
+
+Read naively this fails the gate: +0.888 % is far above the 0.15 % threshold and
+the per-arm interval excludes zero. It does not fail, for two independent
+reasons, and the second is the stronger one.
+
+**1. The per-arm interval is an n = 2 artifact.** G's two prefill draws happen to
+land 0.33 µs apart, which manufactures a 0.166 µs standard error out of nothing.
+Estimating σ from two points is not a measurement. Pooling within-arm variation
+across all three arms gives sd = 9.493 (dof = 5), and **both intervals then
+straddle zero**. E is the tell: its two draws are 26.5 µs apart, so the same
+underlying noise produces a per-arm interval 4.7× wider than G's from the same
+number of samples.
+
+**2. The effect is causally impossible.** Both fused kernels are guarded to a
+single row:
+
+- grid-append wrapper: `input.dims(1, 1, LagunaConstants.hiddenSize)` at
+  `Sources/MLXFastModel/LagunaRuntimeModel.swift:8386`;
+- R114-E's fused QKV+gate: `normalized.dims(1, 1, hidden)` at `:5136`.
+
+The prefill window is one 512-token pass, so `dims(1,1,·)` fails and **every arm
+executes byte-identical prefill code**. Arms G and E differ from C at prefill by
+exactly zero dispatches.
+
+That turns this axis into something more useful than a gate: **two independent
+guaranteed-zero negative controls**, obtained for free. They read **+0.888 %**
+and **+0.953 %** — same sign, similar magnitude, and one of them nominally
+"significant". The true value is 0 by construction. So the layer-2 harness at
+n = 2/arm carries a systematic between-run offset of order ±1 % that a naive
+per-arm interval does not capture, and the run-position listing shows why: the
+four slow prefill draws are at positions 3, 5, 6, 7 and the four fast ones at
+1, 2, 4, 8, i.e. a mid-session hump that the `C E G C | C G E C` layout does not
+balance (C holds three of the four end positions).
+
+**Gate verdict: not triggered.** The prefill regression required by the rule is
+"a >0.15 % regression with an interval excluding zero"; under the correct pooled
+estimator the interval includes zero, and independently the code path is
+provably identical. The earlier unpaired prefill speedup of 0.323 is likewise
+explained: it is an unpaired cold observation, and it is present in **arm C
+too** — every one of these 8 runs, including the four unmodified-baseline runs,
+reports `passed_prefill_speedup_floor: false` against the pinned baseline. That
+is the documented M4 prefill artifact (this host is Apple GPU generation 16 and
+never selects the `_nax` prefill kernels the ranked M5 uses), not a property of
+this change.
+
+The methodological consequence is worth stating plainly, because it applies to
+every future layer-2 result in this family: **an 8-run layer-2 ABBA cannot
+resolve anything smaller than ~1 %,** and any layer-2 interval built from an
+n = 2 within-arm sd should be discarded. I only caught this because the change
+under test happens to have a provably inert axis. Future rounds should include a
+deliberate inert control arm at layer 2 rather than relying on one being
+available by accident.
 
 ## 9. Correctness
 
@@ -761,7 +851,55 @@ I did not run this — it is outside the assignment's edit scope for R119-A and
 touches a merged, shipped kernel — but it is the highest-value item I found and
 it is listed as follow-up 10.
 
-<!-- FILL: layer-2 C/E delta and verdict -->
+**Layer-2 like-for-like answer (`./benchmark.sh --local-iterate`, SPLIT=0 via
+`MLXFAST_LOCAL_FAN_PROMPT=0`, the same instrument and the same split that
+produced −76.8).** From §8.1:
+
+| quantity | value |
+|---|---|
+| C (baseline, n = 4) | 12869.095 µs/token |
+| E (R114-E off, n = 2) | 12912.996 µs/token |
+| **E − C** | **+43.900 µs/step** (+0.341 %) |
+| 95 % CI (pooled sd 57.6, n = 2) | [−53.9, +141.7] |
+| forward half / mirror half | +6.854 / +80.947 (2/2 positive) |
+
+**Verdict on (ii): the sign reproduces; the magnitude does not.** On this M4 Pro
+head, R114-E is worth **≈ +44 µs/step**, not 76.8. The striking part is the
+cross-instrument agreement: `decode_probe` at SPLIT=1 says **+44.2** and
+`--local-iterate` at SPLIT=0 says **+43.900** — two independent harnesses, two
+different splits, agreeing to **0.7 %**. That convergence removes the three
+excuses I listed above (instrument, split, machine-class scaling): the SPLIT=1
+and SPLIT=0 numbers are the same number, so split is not the explanation, and
+the instrument is not the explanation either.
+
+What remains is the honest reading: **R114-E reproduces at ~57 % of its recorded
+−76.8 µs/step, and the layer-1 interval [+34.1, +54.3] excludes 76.8 outright.**
+I state that as a shortfall rather than a scaling factor, because I no longer
+have a scaling factor to appeal to.
+
+Two caveats I will not hide behind but should be on the record:
+
+1. The layer-2 CI is wide (n = 2/arm) and by itself is compatible with 76.8. It
+   is the *layer-1* interval, with 2 868 raw samples per arm, that excludes it.
+   The layer-2 pair's value is that it pins the point estimate on the *right
+   instrument at the right split*, and it lands on the layer-1 value.
+2. This is M4 Pro; −76.8 is an M5-context number. A genuine architecture
+   difference in the *size* of the win is exactly what §7.3's reclassification
+   predicts — see below — so "M4 ≠ M5" is not a defect of the measurement here,
+   it is the finding.
+
+**This connects directly to the comment-6 transfer disclosure, and it changes
+my answer to it.** Points 1–3 above were written before arm R ran, and point 2
+attributes possible non-transfer to *occupancy/load-balance granularity*. §7.3
+and §10b.3 supersede that: arm R shows the dispatch-count recovery this family
+assumed is ≈ 0, so at least 66 % of R114-E's win is **operand reuse**, not
+dispatch removal. Operand-reuse wins scale with cache capacity and bandwidth per
+unit work, which is precisely what differs between a 20-core M4 Pro and an M5
+Max. So the same mechanism now explains *both* observations at once: the M4
+shortfall against 76.8, and the near-null ranked transfer (−0.063 % vs a
+predicted +0.45 %). Follow-up 10's tile-splitting test is still worth running,
+but it is now a test of the *weaker* hypothesis; the operand-reuse reading is
+the one I would bet on.
 
 ## 10b. Mechanism — what makes a sibling grid-append pay, and what does not
 
