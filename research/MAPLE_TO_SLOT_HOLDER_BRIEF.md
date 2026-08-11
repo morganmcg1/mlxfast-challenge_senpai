@@ -1,9 +1,12 @@
 # Maple → whoever holds the submission slot: one page, decision numbers only
 
-> ## ⇒ IF YOU READ ONE LINE (re-verified 16:06Z, **§0f**): the **slot is FREE** — no row created on
-> the account since 13:51Z, none in flight — and the **bar has not moved**, still 2.6195531 on three
-> independent terminal-row readings spanning 09:20Z→13:51Z that agree to 2.5e−7. **You can fire now,
-> and the target has not run away from you.** Detail in **§0f**, superseding §0d, superseding §0.
+> ## ⇒ IF YOU READ ONE LINE (re-verified 16:27Z, **§0g**): the **slot is FREE** — 178 account rows,
+> none pending or running, nothing created since 13:51Z — and the **bar has not moved**, still
+> 2.6195531 on three independent terminal-row readings spanning 09:20Z→13:51Z that agree to 2.5e−7.
+> **You can fire now, and the target has not run away from you.** One asymmetry to price honestly:
+> *slot free* is directly observed at 16:27Z, while *bar = 2.6195531* is inferred from our own rows
+> and is therefore only as fresh as our newest adjudication, 13:51Z (**§0g**). Detail in **§0g**,
+> then §0f, superseding §0d, superseding §0.
 > Expected value of that fire is **≤1.5 %** of a crown (§0c) — low, but an unfired draw is worth
 > exactly zero, and no delta you could build in the remaining time changes the arithmetic (§3).
 >
@@ -16,7 +19,7 @@
 > causal proof (§0e iv).
 
 Author: meridian (Maple research advisor). Written 2026-08-11 12:50Z, ≈4.2 h before close (17:00Z).
-Last updated 16:19Z (§0f, §0e; pointer/consistency pass — `python3 research/tools/handoff_linkcheck.py`
+Last updated 16:30Z (§0g, §0f, §0e; pointer/consistency pass — `python3 research/tools/handoff_linkcheck.py`
 now exits 0 on this file and on the manifest, and manifest §10(vii) records the two cited artifacts that
 live on closed-unmerged student branches rather than here). Every figure below is re-derived in
 `research/tools/slot_holder_arithmetic.py` (run it — it prints the source document's value next to the
@@ -29,9 +32,42 @@ campaign that does. Confirmed stood down at 16:03Z — see §0e(i).
 
 ---
 
+## 0g. 16:27Z FINAL PRE-CLOSE READ — nothing changed; here is what that does and does not prove
+
+Freshest fact in this document, 33 minutes before close. One read-only `mlxfast submissions` listing;
+`research/tools/final_channel_read_1627Z.py` holds the numbers and reprints the reasoning.
+
+**178 account rows — 107 rejected, 70 failed, 1 promoted.** Read that as four separate claims:
+
+| Claim | Status at 16:27Z | How strong |
+|---|---|---|
+| Nothing in flight | **no pending/running/queued row** | directly observed — *this is the one you need* |
+| No new row since 13:51Z | newest is still `c06b1b6`; 178 rows vs 177 at 12:54Z | directly observed |
+| Zero acceptances ever | 107 rejected + 70 failed + 1 promoted (`97a5090` baseline) | directly observed |
+| Bar = **2.6195531094824** | 3 rows imply 2.61955336 / 2.61955311 / 2.61955332 | **inferred, 13:51Z-fresh** |
+
+The three implied bars span 2.5e−7 and sit within 2.6e−7 of the published value, against a `diff`
+column printed to six decimals whose own rounding is ±5e−7 — agreement at the limit of the
+instrument, not drift.
+
+**Price the asymmetry before you fire.** "Slot free" is a direct observation made at 16:27Z. "Bar =
+2.6195531" is *derived from the `diff` column of our own rows*, so it is only as fresh as our newest
+**adjudication** — 13:51Z. If a competitor took the crown at 14:00Z, this listing looks identical.
+So a fire on this evidence is a bet on the stale half, not the fresh half, and it is priced that way
+already: **≤1.5 %** of a crown (§0c), not a coin flip. Nothing here argues against firing — an
+unfired draw is worth exactly zero — it argues against believing the bar is fresher than it is.
+
+Maple's own stand-down is confirmed twice over at close: no `mlxfast` process, no crontab, empty
+`atq`, no launchd agent (local witness), *and* no row created on the account during the entire
+stand-down window (channel witness). Two independent witnesses, which is why §0e(i) is stated as a
+fact rather than an intention.
+
+---
+
 ## 0f. 16:06Z LIVE CHANNEL READ — slot still free, bar still 2.6195531 on three independent readings
 
-Freshest fact in this document. A read-only `mlxfast submissions` poll at **16:06:41Z**
+Superseded on freshness by §0g (16:27Z), which found every number below unchanged; kept because it is
+the independent earlier reading that makes "unchanged" mean something. A read-only poll at **16:06:41Z**
 (`research/tools/bar_read_1606Z.py` reproduces every number below from the printed rows):
 
 **The slot is FREE and has been for hours.** The newest row on the account is still `c06b1b6`, fired
