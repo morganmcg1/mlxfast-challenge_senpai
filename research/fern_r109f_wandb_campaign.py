@@ -64,7 +64,18 @@ OUR_RECEIPTS = [
     ("88584270-140e-4f28-a924-b00c77b1becd", "t2", "same-exe replay 04e8bf3c"),
     ("e4078827-c7fd-4173-a2bf-2f6af7cc6e73", "t3", "base + QHOIST=1 ec0954e2"),
     ("ed40f3ee-b76b-45de-b751-d02b013ea113", "t4", "base + atlas v3, QHOIST reverted"),
+    ("0531544b-a426-4f26-821a-d7f642f6c101", "t5", "same-exe replay of t4 (atlas v3)"),
 ]
+
+# Executable class per ticket: shots sharing a class ran the same binary up to a
+# comment-only nonce, so any published spread inside a class is pure host luck.
+OUR_CLASSES = {
+    "t1": "r109F-base",
+    "t2": "r109F-base",
+    "t3": "r109F-qhoist",
+    "t4": "r109F-atlasv3",
+    "t5": "r109F-atlasv3",
+}
 
 # Local 2x2, from research/fern_r109f_ab_rebuild.sh / fern_r109f_env_bench.sh.
 # decode seconds/token on the local M4 harness, golden b9509697c08a2cf3.
@@ -572,6 +583,55 @@ def run_arms(wandb, rows, cache, dry):
         summary["ranked/best_published_delta_vs_prior_best"] = (
             best_pub - PRIOR_BEST_OFFICIAL
         )
+
+    # ---- code axis vs luck axis, on our own receipts only -----------------
+    # See instrument-collapse.md 5.3e.  Each of our draws is ranked inside the
+    # empirical draw distribution of every full-leg correct receipt on the
+    # benchmark, so "our luck was bad" becomes a percentile instead of a mood.
+    field_draws = sorted(
+        r["officialScore"] / normalized(r["officialMetrics"]) for r in rows if full_leg(r)
+    )
+    nfield = len(field_draws)
+
+    def draw_pct(d):
+        return 100.0 * sum(1 for x in field_draws if x <= d) / nfield
+
+    own = []
+    for rid, tag, _desc in OUR_RECEIPTS:
+        r = by_id.get(rid)
+        if r is None or not full_leg(r):
+            continue
+        nv = normalized(r["officialMetrics"])
+        own.append((tag, r["officialScore"], nv, r["officialScore"] / nv))
+    ok = [o for o in own if OUR_CLASSES.get(o[0]) != "r109F-qhoist"]
+    print("[arms] code axis vs luck axis (own receipts, non-regressed classes):")
+    for tag, pub, nv, dw in own:
+        summary[f"ranked/{tag}/draw_percentile_of_field"] = draw_pct(dw)
+        print(
+            f"  {tag} class={OUR_CLASSES.get(tag,'?'):<14} published={pub:.6f} "
+            f"normalized={nv:.6f} draw={dw:.6f} pct={draw_pct(dw):5.1f}%"
+        )
+    if len(ok) >= 2:
+        nzs = [o[2] for o in ok]
+        pubs = [o[1] for o in ok]
+        cs = 100.0 * (max(nzs) - min(nzs)) / statistics.fmean(nzs)
+        ps = 100.0 * (max(pubs) - min(pubs)) / statistics.fmean(pubs)
+        summary["own/code_spread_pct"] = cs
+        summary["own/published_spread_pct"] = ps
+        summary["own/luck_over_code_amplification"] = (ps / cs) if cs else None
+        summary["own/n_receipts"] = len(ok)
+        summary["field/draw_n"] = nfield
+        best_code = max(ok, key=lambda o: o[2])
+        best_luck = max(ok, key=lambda o: o[1])
+        summary["own/best_code_ticket"] = best_code[0]
+        summary["own/best_code_normalized"] = best_code[2]
+        summary["own/best_published_ticket"] = best_luck[0]
+        summary["own/best_code_is_best_published"] = best_code[0] == best_luck[0]
+        print(
+            f"  code spread {cs:.4f}%  published spread {ps:.4f}%  "
+            f"amplification x{ps/cs:.1f}  (best code {best_code[0]}, "
+            f"best published {best_luck[0]})"
+        )
     if dry:
         return None
 
@@ -586,7 +646,12 @@ def run_arms(wandb, rows, cache, dry):
             "plus every ranked receipt this campaign fired with normalized score "
             "and draw factor separated. atlas v3_tg128 is -0.026% locally, which is "
             "inside local repeatability and far below ranked resolution; prefetch "
-            "1->0 costs +17.4us, so the default 1 stays."
+            "1->0 costs +17.4us, so the default 1 stays. The own/* summary keys are "
+            "the campaign's own proof of its thesis (instrument-collapse.md 5.3e): "
+            "across our non-regressed shots the code spread is ~0.044% and the "
+            "published spread ~1.47%, and the ticket carrying the best code (t4, "
+            "normalized 2.567970) published the worst score because its draw landed "
+            "in the 3rd percentile of the field's draw distribution."
         ),
         config=cfg,
         reinit=True,
@@ -600,11 +665,13 @@ def run_arms(wandb, rows, cache, dry):
         columns=[
             "ticket",
             "id",
+            "exe_class",
             "package",
             "status",
             "published",
             "normalized",
             "draw",
+            "draw_percentile_of_field",
             "cand_decode_us",
             "cand_prefill_us",
             "base_decode_us",
@@ -621,11 +688,13 @@ def run_arms(wandb, rows, cache, dry):
         rt.add_data(
             tag,
             rid,
+            OUR_CLASSES.get(tag, "?"),
             desc,
             r["status"],
             pub,
             nv,
             (pub / nv) if (pub and nv) else None,
+            draw_pct(pub / nv) if (pub and nv) else None,
             (m.get("decode_seconds_per_token") or 0) * 1e6 or None,
             (m.get("prefill_seconds_per_token") or 0) * 1e6 or None,
             (m.get("baseline_decode_seconds_per_token") or 0) * 1e6 or None,
