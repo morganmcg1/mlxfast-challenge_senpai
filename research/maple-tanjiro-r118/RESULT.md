@@ -146,10 +146,23 @@ Four things bound it.
    block `rd2` removes 174 MB/step, saves ~456 us/step, and records **zero**
    divergences, while `rd1` records some. The ruler's headline sensitivity is
    demonstrated on an arm with no routing perturbation at all.
-4. **Direct test.** Within the `d1` arm the per-run divergence count varies
-   run-to-run, so I regress each run's median step time on its divergence count.
-   If re-routing costs time, that slope is positive and I can price the bias
-   directly: TBD-DIVERG-REGRESSION
+4. **Direct test.** My first plan was to regress each run's median step time on
+   that run's divergence count *within* an arm. **That test does not exist**: the
+   divergence count is deterministic and constant within an arm — `ship` 0,
+   `ctl` 0, `rctl` 0, `rd2` 0, `rd1` 53, `d2` 60, `d1` 118, identical in all ten
+   runs of every arm (`confound-check.py`, which reports zero within-arm variance
+   in the regressor). The regressor has no variance, so the slope is not
+   identified and I am not going to report a fitted number for it. What replaces
+   it is a **paired per-step-index** contrast (`divergence-cost.sh`,
+   `divergence-cost.py`): run `ship` and `d1` with per-step times *and* per-step
+   tokens in a palindromic `ship,d1,d1,ship` order, label each step index
+   divergent or not by comparing the two token streams, and compare the paired
+   difference `ship − d1` on divergent vs non-divergent step indices. Pairing by
+   index removes the fact that divergent steps are not randomly located in the
+   sequence. The per-step cost of a divergence is then
+   `median(Δ | non-divergent) − median(Δ | divergent)`, and the worst-case
+   correction to `d1`'s saving is `max(0, upper 95 % bound) × (divergent
+   fraction)`: TBD-DIVERG-REGRESSION
 
 Finally, the arithmetic of the escape route. `d2` (fewer bytes removed, and the
 lower-divergence arm) shows the *larger* median saving of the two doses. For the
