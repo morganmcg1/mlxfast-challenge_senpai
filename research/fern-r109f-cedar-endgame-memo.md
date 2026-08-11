@@ -80,6 +80,101 @@ fire that can still be scored before 17:00Z is about **15:00Z** (p95 coverage),
 **15:15Z** at the outside. A shot at ~11:05Z lands ~13:00Z, which leaves room
 for roughly **two more** after it, three if the queue cools.
 
+## The finding I would most want carried forward: prefill is 12.7× cheaper per µs
+
+This is not actionable in five hours, so it is not a recommendation for today —
+but it is the strongest thing I learned and it should not die with this round.
+
+Take the most recent full official receipt we own, `74593e5a` (submission
+`4be372f9-bb17-4857-9252-b84c71bc3c1a`, both floors passed,
+officialScore **2.57671436417547**). Its legs and the baselines it was scored
+against:
+
+| leg | ours | baseline | speedup |
+|---|---|---|---|
+| decode | 0.004901157875 s/tok | 0.0138594485703125 | **2.827791** |
+| prefill | 0.000188064046875 s/tok | 0.00036663094140625 | **1.949500** |
+
+`2.827791^0.75 × 1.949500^0.25 = 2.5767143641754724`, which reproduces
+officialScore to 13 digits — so the scoring identity is confirmed exactly on a
+real receipt, not assumed.
+
+Now differentiate it — and note the trap I fell into on my first pass, because
+it is the whole point. The naive reading is that prefill carries exponent 0.25
+and decode 0.75, so prefill is worth `0.25/0.75 × (4901/188) = 8.8` decode-µs
+per prefill-µs. **That undercounts prefill.** The prefill/seed forward is paid
+*twice*: once in the prefill leg, and again inside the decode leg through the
+`S/128` seed-forward term, because `decode = T/1000 + 4 × prefill`. On this
+receipt the seed forward is **752.26 µs of the 4901.16 µs decode leg = 15.35 %**
+of it. Differentiating the composed identity gives elasticities
+
+| channel | elasticity of score |
+|---|---|
+| steady-state decode `T` | **0.63489** |
+| prefill / seed forward | **0.36511** |
+
+which sum to 1.0 exactly (verified numerically, not asserted).
+
+**All three links in that chain are source-verified, not inferred:**
+
+1. `LagunaRuntimeLocalIterate.swift:578-583` — *"Match official benchmark decode
+   semantics: charge prompt-specific setup, seed prefill, cache materialization,
+   and checked token steps to `decode_seconds_per_token` so local signals cannot
+   hide work that the official benchmark charges"*, and the progress line emits
+   `includes_seed_prefill=true`. So the decode leg genuinely contains the seed
+   forward.
+2. `Constants.swift:109` — `benchmarkDecodeSteps = 128` for the ranked path.
+   512 prompt tokens amortised over 128 decode steps is exactly the factor 4 in
+   `decode = T/1000 + 4 × prefill`, and it is where the `S/128` in the published
+   score formula comes from.
+3. The arithmetic closes on this host too: local steady step from the identity
+   is 0.008905 − 512×0.001115/1023 = **0.008347 s**, against the harness's own
+   printed `mean_step_seconds=0.008343`. Agreement to 0.05 % on an independent
+   quantity.
+
+**And link 2 carries a trap for anyone A/B-ing locally.** `Constants.swift:117`
+sets `localSubmitBenchmarkDecodeSteps = 1023`, so under `--local-submit` the
+seed forward is amortised over 1023 steps instead of 128 and its share of the
+decode leg collapses from **15.35 % to 1.92 %** — an **8× dilution**. A prefill
+win measured through the local decode leg therefore reads about 8× smaller than
+it is worth officially (local prefill elasticity 0.264 vs official 0.365). Local
+A/B is the right instrument for decode work and a systematically pessimistic one
+for prefill work. Measure prefill on the prefill leg.
+
+So to buy **+1 % of score** you need either
+
+- **−64.59 µs/token of the decode leg** (−1.318 %), or
+- **−5.07 µs/token of prefill** (−2.69 %, which also drags the decode leg down
+  by 4 × 5.07 = 20.3 µs for free).
+
+**One microsecond of prefill is worth 12.7 microseconds of decode**, not 8.8.
+And the absolute budgets make the asymmetry worse still: over the scored window
+prefill is 512 × 188 µs = **96.3 ms** while decode is 1023 × 4901 µs =
+**5013.9 ms**, so **prefill is 1.88 % of wall-clock time carrying 36.5 % of the
+score elasticity** — a 19× over-weighting.
+
+The leg we have neglected is exactly the over-weighted one. Decode has been
+driven to 2.83× and prefill only to 1.95×. If prefill were merely brought to
+parity with decode's speedup — 188.06 µs → 129.65 µs, −31.1 %, which also cuts
+the decode leg to 4667.51 µs through the seed term — normalized score would go
+from 2.5767 to **2.9333, i.e. +13.84 %**. For scale, the entire gap between our
+best executable and the standing crown is 1.26 %.
+
+Stated the way I wish I had seen it on day one: **a coin flip against the crown
+costs 6.34 µs/token of prefill — 3.25 ms off a 96.3 ms prefill budget — or
+81.15 µs/token off the decode leg.** We spent the campaign hunting the second
+number in 20–70 µs increments.
+
+I want to be careful about what this does and does not say. It does **not** say
+31 % of prefill is available; prefill may simply be harder, and a 5-hour window
+cannot test that. It says the *price signal* has been pointing at prefill the
+whole time and the campaign's effort has gone almost entirely into decode. Any
+future round should spend its first hour re-deriving this exchange rate on a
+fresh receipt and then allocating effort by it. Concretely, tanjiro's prefill
+`BN` arm (#732) is the highest-priced open item on the board by this metric, and
+should be ranked above any remaining decode micro-optimisation regardless of how
+promising the decode item looks in kernel-local microseconds.
+
 ## An option I am explicitly ruling out
 
 The best normalized executable on the whole record is not ours: it is
