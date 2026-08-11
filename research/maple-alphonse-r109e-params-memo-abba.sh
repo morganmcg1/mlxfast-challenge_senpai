@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# R109-E second deliverable: A/B for the full-attention `params` single-entry memo.
+#
+# Unlike the QK ceiling probe, both arms run the SAME BINARY -- the memo is
+# gated at runtime by DARKBLOOM_FULL_PARAMS_MEMO, so no rebuild separates the
+# arms and the only difference is whether nine of ten per-step MLXArray
+# constructions happen.  Both arms are bit-exact and must report
+# passed_correctness=true; a false in either arm invalidates the pair.
+#
+# The memo removes only 9 host MLXArray constructions per decode step, so a
+# bare M-vs-O contrast is hopeless against a ~50 us/step run-to-run sd.  Two
+# synthetic dose arms turn the same session into a ruler: they ADD unused
+# constructions at the same call site, which prices one construction directly
+# and says what removing nine can possibly be worth.  All four arms are
+# bit-exact and must report passed_correctness=true.
+#
+# Arms:
+#   M = memo on   (DARKBLOOM_FULL_PARAMS_MEMO unset)   ->   1 alloc/step
+#   O = memo off  (DARKBLOOM_FULL_PARAMS_MEMO=0)       ->  10 alloc/step (shipped)
+#   A = memo off + DARKBLOOM_FULL_PARAMS_DOSE=10       -> 110 alloc/step
+#   B = memo off + DARKBLOOM_FULL_PARAMS_DOSE=100      -> 1010 alloc/step
+#
+# Usage: research/maple-alphonse-r109e-params-memo-abba.sh [ORDER] [OUT_TSV]
+set -uo pipefail
+cd "$(dirname "$0")/.."
+
+# Two mirrored blocks, not one.  The first run of a block on this host is about
+# 101 us/step slower than the rest (measured in the QK ceiling data), and in a
+# single palindrome the lead slot always belongs to the same arm.  `OABMMBAO`
+# followed by its arm-reversal `MBAOOABM` gives O and M one lead slot each and
+# balances A and B across slots 2/7 and 3/6.
+ORDER="${1:-OABMMBAOMBAOOABM}"
+OUT="${2:-/tmp/r109e-params-memo.tsv}"
+printf 'idx\tarm\tdecode_s_per_token\tprefill_s_per_token\tpassed\terror\n' > "$OUT"
+
+export MLXFAST_LOCAL_FAN_PROMPT=0
+
+i=0
+for (( n=0; n<${#ORDER}; n++ )); do
+  arm="${ORDER:$n:1}"
+  i=$((i+1))
+  log="/tmp/r109e_params_memo_${i}_${arm}.log"
+  case "$arm" in
+    O) DARKBLOOM_FULL_PARAMS_MEMO=0 ./benchmark.sh --local-iterate > "$log" 2>&1 ;;
+    A) DARKBLOOM_FULL_PARAMS_MEMO=0 DARKBLOOM_FULL_PARAMS_DOSE=10 \
+         ./benchmark.sh --local-iterate > "$log" 2>&1 ;;
+    B) DARKBLOOM_FULL_PARAMS_MEMO=0 DARKBLOOM_FULL_PARAMS_DOSE=100 \
+         ./benchmark.sh --local-iterate > "$log" 2>&1 ;;
+    *) ./benchmark.sh --local-iterate > "$log" 2>&1 ;;
+  esac
+  dec=$(grep -o '"decode_seconds_per_token" : [0-9.e-]*' "$log" | tail -1 | awk '{print $3}')
+  pre=$(grep -o '"prefill_seconds_per_token" : [0-9.e-]*' "$log" | tail -1 | awk '{print $3}')
+  pas=$(grep -o '"passed_correctness" : [a-z]*' "$log" | tail -1 | awk '{print $3}')
+  err=$(grep -o '"error" : "[^"]*"' "$log" | tail -1 | cut -c11- | tr -d '"')
+  printf '%d\t%s\t%s\t%s\t%s\t%s\n' \
+    "$i" "$arm" "${dec:-NA}" "${pre:-NA}" "${pas:-NA}" "${err:-}" | tee -a "$OUT"
+done
+
+echo "--- $OUT ---"
+cat "$OUT"
