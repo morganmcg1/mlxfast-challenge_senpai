@@ -334,6 +334,49 @@ Three things this table settles:
 
 ## §4 Mechanism
 
+### 4.0 Record correction: the prior that motivated this assignment has the wrong sign
+
+This has to come first, because it changes what the ladder is *for*.
+
+The assignment (and my §1.2/§1.4) inherited a motivating claim that frieren's
+#714 had measured a **+0.38 % win from TG = 256** on the shared SwiGLU QMV
+kernel. My advisor's comment 4 on this PR (`r125-b-tg-prior-inverted-cheap-prescreen-1`,
+11:40:27Z) retracts it. frieren's actual table is in **µs/step, direction =
+minimize**:
+
+| arm | frieren #714, µs/step (minimize) | Δ vs TG=64, µs/step (minimize) | reading |
+|-----|---------------------------------:|-------------------------------:|---------|
+| TG = 64  (2 simdgroups) | 289.83 ± 1.42 | — | reference |
+| TG = 128 (4 simdgroups) | 290.38 ± 1.07 | **+0.55** (+0.19 %) | not significant |
+| TG = 256 (8 simdgroups) | 294.50 ± 0.85 | **+4.67** (+1.61 %) | **cost** |
+
+Her headline was **"REFUTED, φ = +0.065"**. The `+66.88 µs/step if φ = 1`
+number that reached me as a measurement is a **`PREDICTED`** counterfactual
+inside a refutation — the thing her data ruled out. Lower is better, so
+TG = 256 was her *worst* arm, not her best.
+
+Two independent replications now agree, both **µs/step (minimize)**:
+
+| source | change | measured effect, µs/step (minimize) | agreement |
+|--------|--------|------------------------------------:|-----------|
+| alphonse #729 | TG 64 → 256 (2 → 8 simdgroups) | **+4.73 ± 0.52**, CI95 **[+2.50, +6.96]** | 3/3 blocks, 6/6 slot-pairs positive |
+| edward #731 | TG 256 on the routed analogue | **+23.12** (wall) | regression |
+| frieren #714 | TG 64 → 256 | **+4.67** (+1.61 %) | cost |
+
+The fleet has banked this as **`L-TG-WIDTH-IS-A-DEBIT-AT-tgMem-0`**: with
+`staticThreadgroupMemoryLength = 0` there is nothing for extra threadgroup
+width to amortise, so width is an unconditional occupancy debit, priced at
+**≈ +0.79 µs/step per extra simdgroup per threadgroup** on M4 Pro
+(alphonse: 6 extra simdgroups × 0.79 ≈ +4.73).
+
+The consequence for this write-up is not that the ladder was pointless — it is
+that **the ladder's pre-registered upside never existed**, and the only
+questions left are (a) does my kernel show the predicted *debit*, and (b) can
+my instrument even see it. §4.4 answers both. It is also, bluntly, a vindication
+of §1.8: I wrote the amendment that killed the upside mechanism from
+`tgMem = 0 B` **before** timing anything and **before** the retraction landed,
+by reading the kernel instead of the summary of someone else's ladder.
+
 ### 4.1 What the ladder shape says about shared-L1 reuse
 
 Pre-registration §1.3 named four refutations. Scoring them against §3.2:
@@ -349,10 +392,15 @@ Pre-registration §1.3 named four refutations. Scoring them against §3.2:
   different axis than fetch count.
 * **R3 (wrong sign)** — N8 slower than N2. Reuse cannot cost time, so a
   reproducible loss localises the effect in dispatch/scheduling, not in L1.
-* **R4 (cross-kernel constant off by >3×)** — §1.4 predicted **≈ 1230 µs/token**
-  from frieren's 2.1 µs-per-saved-MB constant. That is 12× my own bandwidth
-  ceiling of **102 µs/step**, so R4 was pre-committed to fire for any measured
-  effect ≲ 100 µs.
+* **R4 (cross-kernel constant off by >3×)** — §1.4 predicted **≈ 1230 µs/token
+  (`PREDICTED`, not measured)** from a "2.1 µs per saved MB" constant I derived
+  from frieren's #714. That is 12× my own bandwidth ceiling of **102 µs/token**,
+  so R4 was pre-committed to fire for any measured effect ≲ 100 µs/token — and
+  it fires. §4.0 now explains *why* it had to: the constant was extracted from a
+  number that was (i) sign-inverted and (ii) itself a `PREDICTED`
+  counterfactual inside a refutation. R4 was the right tripwire on the wrong
+  premise; the pre-registration's arithmetic caught the absurdity
+  (12× a hard ceiling) without needing the retraction.
 
 ### 4.2 Why a kernel at 94 % of measured peak has only downside left
 
@@ -401,6 +449,64 @@ Two honest limits on that claim: (i) three points, two kernels, so it is a
 gate, not a curve; (ii) it is a *necessary*-condition gate only — o_proj having
 headroom did not by itself guarantee the win, it was a joint change of `rps`
 and `ns`.
+
+### 4.4 Reconciling my ladder with `L-TG-WIDTH-IS-A-DEBIT-AT-tgMem-0`, and the power arithmetic I should have done first
+
+**Step 1 — what the fleet law predicts for my rungs.** My QKV kernel has
+`staticThreadgroupMemoryLength = 0 B` (§1.8, read out of the compiled pipeline,
+not assumed), so it is inside the law's stated domain. At
+**≈ +0.79 µs/step (minimize) per extra simdgroup per threadgroup**:
+
+| rung | simdgroups/TG | extra vs N2 | `PREDICTED` debit, µs/step (minimize) | as % of 8,870 µs/step decode |
+|------|--------------:|------------:|--------------------------------------:|-----------------------------:|
+| N2 | 2 | 0 | 0 (reference) | — |
+| N4 | 4 | 2 | **+1.6** `PREDICTED` | +0.018 % |
+| N8 | 8 | 6 | **+4.7** `PREDICTED` | +0.053 % |
+
+One transfer caveat, stated rather than hidden: alphonse's constant was fitted
+on a kernel dispatched once per layer, while decode QKV is dispatched **twice**
+per layer (`h64` and `h48`), so if the debit is per *dispatch* rather than per
+*kernel family per step* the N8 prediction doubles to **≈ +9.5 µs/step
+`PREDICTED`**. My data cannot separate those two scalings — see step 2 for why.
+
+**Step 2 — what my instrument can resolve.** This is the number I owe the
+fleet, and I should have computed it in §1.6 instead of after the fact.
+`--local-submit` has a decode leg cv of **0.30 %** (R117-C, R122-B, and this
+campaign all agree), i.e. σ ≈ **0.0030 × 8,870 ≈ 27 µs/step** per run. A paired
+block delta therefore carries σ ≈ 27 × √2 ≈ **38 µs/step**, and with
+**B = 4 blocks** the standard error of the mean paired delta is
+38 / √4 ≈ **19 µs/step**, so the CI95 half-width is ≈ **±47 µs/step**:
+
+| quantity | value, µs/step (minimize) |
+|----------|--------------------------:|
+| predicted N8 debit (fleet law) | +4.7 to +9.5 `PREDICTED` |
+| my CI95 half-width at B = 4 | **± ≈ 47** |
+| ratio (resolution ÷ effect) | **5× to 10× too coarse** |
+| blocks needed to resolve +4.7 at 95 % | **≈ (2 × 38 / 4.7)² ≈ 260** |
+
+260 blocks × 3 arms × 160 s ≈ **35 hours**. The effect is real, it is in the
+predicted direction, and it is **structurally invisible to the ranking
+instrument** — which is exactly why alphonse's dedicated per-kernel microbench
+is the right tool for pricing it and a whole-model paired ladder is not.
+
+**Step 3 — so what does my ladder actually establish?** Not the debit's value:
+an *upper bound on any win*. Whatever the sign of the point estimate in §3.2,
+its CI95 upper edge in the improving direction is ≈ **−47 µs/step** at best,
+i.e. **0.53 % of decode**, i.e. ≈ **0.44 % of the 10.6 ms/token end-to-end
+step**. σ(officialScore) is **0.49 %**. So even in the most generous corner of
+my own interval, the `ns` axis on decode QKV **cannot produce a change a
+ranked receipt could distinguish from noise**. Combined with §4.0's three
+independent measurements that the true sign is a *debit*, the axis is closed
+for this kernel: there is nothing to land, and no amount of local blocks would
+change that verdict.
+
+**Step 4 — the generalisable rule I am adding to the fleet's pre-screen.**
+Before building a geometry ladder, compute
+`effect_predicted / (2 × cv × level / √blocks)`. If that ratio is < 1, the
+ladder cannot adjudicate its own hypothesis and the honest move is either a
+dedicated microbench (alphonse's route) or a byte-level argument (§1.8's
+route) — **not** a whole-model campaign. Two of my four rungs were spent
+learning this; it is cheap for everyone else to reuse.
 
 ---
 
@@ -461,7 +567,68 @@ Ranked by information per minute, given what §3 and §4 now say:
    gate half needs its own tile mapping (`laguna_gate_tiles = heads/8` assumes
    64 threads/TG). That is a real code change, not a knob, and it is only worth
    writing if item 1 or 2 says the axis pays somewhere.
-4. **Not worth buying:** more blocks on this ladder. §4 shows the effect is
-   inside a band that σ(officialScore) ≈ 0.49 % cannot adjudicate even with a
-   receipt; local blocks would narrow my interval but could not change the
-   landing decision, which is governed by the bandwidth ceiling, not by noise.
+4. **Not worth buying:** more blocks on this ladder. §4.4 prices it exactly —
+   ≈ **260 blocks (≈ 35 h)** to resolve the predicted +4.7 µs/step debit, for a
+   quantity that σ(officialScore) ≈ 0.49 % could not adjudicate even if I had
+   it. Local blocks would narrow my interval but could not change the landing
+   decision, which is governed by the bandwidth ceiling and by `tgMem = 0`, not
+   by noise.
+
+---
+
+## §7 The landing artifact (and why the portable hunk is not a geometry flip)
+
+### 7.1 Scoring the landing rule
+
+The assignment's landing rule has two conjuncts. Scored honestly:
+
+| conjunct | verdict | evidence |
+|----------|---------|----------|
+| bit-identical output at every rung | **PASS** | §3.1: `max_abs_diff = 0` and golden `b9509697…` for S/N2/N4/N8 at 128 steps; §3.2: golden `f49e4c2c…` for all 12 timed runs at 1023 steps |
+| paired interval excludes zero **in the improving direction** | **FAIL** | §3.2: the point estimate for both candidate rungs is on the *slow* side of N2 and the CI95 contains zero |
+
+Conjunction false ⇒ **land nothing**, per the rule. I am not stretching a null
+into a claim: the candidate arms are *not faster*, and §4.0's three independent
+measurements say the true effect is a **debit** of ≈ +0.79 µs/step per extra
+simdgroup. A branch off advisor head carrying `ns = 8` would be a knowing
+regression.
+
+### 7.2 What the smallest-hunk diff contains, and its predicted score
+
+The exported diff is committed at `research/r125b-runs/r125b-knob.diff`
+(111 lines, 5 hunks, all in `Sources/MLXFastModel/LagunaRuntimeModel.swift`),
+with symbol and line anchors in §2. Its status:
+
+| property | value |
+|----------|-------|
+| compiled default | `lagunaDecodeQKVSimdgroups = 2` — **the shipped geometry**, byte-identical Metal source (§2.1) |
+| winning rung in the ladder | **N2** — i.e. the value that is *already* the compiled default |
+| predicted Δ, µs/step (minimize) | **0.000** — by construction, not by measurement: at `ns = 2` the generated kernel source, name, threadgroup size and grid are byte-for-byte what `main` emits |
+| predicted Δ officialScore | **0.000 %** |
+| env override retained? | yes, `DARKBLOOM_QKV_SIMDGROUPS ∈ {1,2,4,8,16}`, and it is **instrumentation only** |
+
+This is the honest reading of "the winning value as a compiled default": the
+winning value *is* the default, so **the correct landing hunk is the empty
+hunk.** I am explicitly **not** claiming an env-only win — there is no win. The
+knob's whole value is that it made the axis falsifiable in 40 minutes and it is
+now measured, so nobody needs to build it again.
+
+### 7.3 What would have to change before `ns > 2` could ever land
+
+Recorded so the next student does not rediscover it:
+
+1. **Hazard (b), the fused path.** The shipped decode path is the appended
+   `qkv+gate` kernel; `ns > 2` had to be measured with
+   `DARKBLOOM_DECODE_QKV_GATE_FUSED=0` on every arm (including the reference —
+   see §1.7). For `ns > 2` to reach the shipped path, the gate half needs its
+   own tile mapping: `laguna_gate_tiles = heads / 8` assumes 64 threads per
+   threadgroup. That is a code change, not a knob.
+2. **The mechanism would have to be different.** With `tgMem = 0 B` there is
+   nothing for the extra width to amortise (§4.2). Widening only pays after a
+   `threadgroup` buffer + barrier exists to share the activation row — and that
+   is the *opposite* experiment (add reuse first, then widen), which is where I
+   would point the next hour if the axis is revisited.
+3. **The `rows % ns == 0` guard (hunk 4, `:5074`)** already restricts the axis:
+   at `ns = 16` the h48 shape (8192 rows) divides, but any future head geometry
+   that is not a multiple of `32 · ns` silently falls back — which is safe, and
+   worth keeping, but means the knob is not a free dial at arbitrary widths.
