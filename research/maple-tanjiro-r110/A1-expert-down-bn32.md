@@ -6,6 +6,14 @@ else has to be applied.
 
 Base: `32665a6b66ce0d2d72b84772863575a6fdc35fb7`.
 
+> **That base is the *gate-time* base, not the live one.** This branch was later
+> rebased onto `9fe371909ee7ffa66a345cf3c42c21141096f388`, and the numstat
+> commands below still reference the old base. The A1 diff is byte-identical
+> across the rebase and the submitted surface against the live base is still
+> `1 1 Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp`.
+> `READY.md` §1 carries the full rebase provenance and the argument for why the
+> gate evidence still binds. Verify against `9fe37190`, not `32665a6b`.
+
 ## The diff
 
 ```

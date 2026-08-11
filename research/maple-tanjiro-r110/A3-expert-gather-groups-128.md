@@ -1,8 +1,37 @@
 # Arm A3 — `darkbloom_expert_gather_groups()` 256 -> 128
 
-Status: **ready to fire**, delivered as a patch
-(`A3-expert-gather-groups-128.patch`). Lowest-priority arm of the three;
-droppable if the M5 channel is contended.
+> ## ⛔ STATUS: DROPPED — DO NOT FIRE
+>
+> This arm is **withdrawn**. It moves the *wrong way* down a closed sweep: the
+> tree default is already 256 (`quantized.cpp:1226`), and two independent
+> receipts put 256 ahead of 128.
+>
+> 1. **M5 measurement**, in the comment stripped at
+>    `research/nezuko-r99b/rung1-comment-strip.patch:7390-7393`: "Measured on M5
+>    Max against the promoted 64 schedule, 128 captures roughly two-thirds of
+>    the 256 schedule's prefill gain ... 256 measures closer to the acceptance
+>    ceiling."
+> 2. **Queue simulation**,
+>    `research/pr142-lpt-expert-queue-refutation.md:274-296`: "current default
+>    `egroups = 256` is optimal"; the knob is "ambiguous, not dominant", worth
+>    at most ~0.5 ms and sign-uncertain — under the landing bar even at best.
+>
+> `research/maple-alphonse-r107c-expert-gather-gemm-floor.md:92` already records
+> "⇒ Stage A arm 3 dropped". **Do not cite
+> `research/PREFILL_NAX_ANALYSIS.md:56-60` here** — that source is retracted as
+> unsourced (`research/CURRENT_RESEARCH_STATE.md:123-125`).
+>
+> The rest of this file, and `A3-expert-gather-groups-128.patch`, are retained
+> **for provenance only** — they record what was built and gated before the
+> prior-art audit. See `READY.md` §7 and `GATES.md`.
+>
+> **Trap if anyone revives this:** the A3 hunk sits at `quantized.cpp:1223` and
+> A1's at `:1239`, so `git apply` of this patch *succeeds* on the A1 branch and
+> silently produces a two-knob build. `--check` will not catch it; only
+> `--numstat` will (`2 2` instead of `1 1`).
+
+Original status when written: ready to fire, delivered as a patch
+(`A3-expert-gather-groups-128.patch`). Lowest-priority arm of the three.
 Owner surface: `Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp`
 (tanjiro region `:1222-1250`).
 Single knob.
