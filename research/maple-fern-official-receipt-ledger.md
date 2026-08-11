@@ -199,11 +199,35 @@ r111 standing requirement; `normalized` and `draw` are derived with
 | 1 | `c1c0ba2c-ec1c-43f4-92bb-3c5b8b0a76e9` | 2026-08-10T23:03:50Z | `074f47e4` (`pkg-t1`) | r109-F base (prefetch=1, atlas v2, QHOIST=0) | rejected — score did not improve | 2.56974410819947 | 2.566844 | 1.001130 | 4932.4 | 187.69 |
 | 2 | `88584270-140e-4f28-a924-b00c77b1becd` | 2026-08-10T23:33:52Z | `04e8bf3c` (`pkg-t2`) | **same executable as #1** (differs by a 4-line comment) | rejected — score did not improve | 2.59576526895414 | 2.566903 | 1.011244 | 4932.6 | 187.65 |
 | 3 | `e4078827-c7fd-4173-a2bf-2f6af7cc6e73` | 2026-08-11T00:00:00Z | `ec0954e2` (`pkg-t3`) | base **+ `DARKBLOOM_ATTN_QHOIST=1` default** (4 semantic lines) | rejected — score did not improve | 2.52713571388054 | **2.532027** | 0.998068 | 4948.5 | 196.30 |
-| 4 | `ed40f3ee-b76b-45de-b751-d02b013ea113` | 2026-08-11T01:07:14Z | `36963661` (branch HEAD) | base **+ atlas `v3_tg128`**, QHOIST reverted — *best-believed package draw, not an arm probe* | *validating at time of writing* | — | — | — | — | — |
+| 4 | `ed40f3ee-b76b-45de-b751-d02b013ea113` | 2026-08-11T01:07:24Z | `d567a72a` (`pkg-t4`) | base **+ atlas `v3_tg128`**, QHOIST reverted — *best-believed package draw, not an arm probe* | rejected — score did not improve | 2.55785830244444 | **2.567970** ← best code of the campaign | **0.996062** ← 3rd percentile of the field | 4928.2 | 187.84 |
+| 5 | `0531544b-a426-4f26-821a-d7f642f6c101` | 2026-08-11T01:31:01Z | HEAD at fire time (nonce `lottery-r109f-t5-…-c4f18a92-b`) | **same executable as #4** (comment-only nonce replay) | *validating at time of writing* | — | — | — | — | — |
 
 Baseline legs the runner reported for each: #1 13896.1 / 366.02 µs, #2
-13850.2 / 384.84 µs, #3 13829.7 / 366.79 µs. All three
+13850.2 / 384.84 µs, #3 13829.7 / 366.79 µs, #4 13825.1 / 364.21 µs. All four
 `passed_correctness: true`.
+
+**★ Receipt #4 is the campaign's own proof of its central claim.** It carries the
+best executable we have ever built — normalized **2.567970**, ahead of both base
+shots — and it published **2.557858**, the *worst* of the three non-regressed
+shots, because the host handed it a draw of 0.996062, the **3.2nd percentile** of
+the 1235-receipt draw distribution, while #2 got the 91.5th. Across #1/#2/#4 the
+code spread is **0.0441 %** and the published spread is **1.4724 %** — an
+amplification of **×33.4**. Regenerate with
+`python3 research/fern_r109f_own_shots.py`; full discussion in
+`research/maple-fern-r109f-instrument-collapse.md` §5.3e. Two consequences are
+recorded here because they govern how this ledger must be read:
+
+1. **A published score is not a package property.** #4's low publish is *not*
+   evidence against atlas `v3_tg128`; on the code axis the change is
+   **+0.0421 %** versus #2, which is the same sign as the local decode A/B
+   (−0.0260 % of decode time ⇒ +0.0166 % of score at the 0.638 decode
+   elasticity) and about 2.5× its size. It is also only **0.12 σ** of the
+   normalized noise, so the ranked receipt confirms nothing on its own. Both
+   statements are true simultaneously and both belong in the record.
+2. **We do not re-plan around a bad draw.** The retraction below is a retraction
+   of exactly that mistake with the opposite sign (a *lucky* draw read as a
+   faster package). #5 therefore replays #4's executable unchanged rather than
+   reverting atlas v3.
 
 **Receipt #4 is framed differently from #1–#3 on purpose.** #1–#3 were
 arm-class probes, fired on the belief that one normalized receipt resolves

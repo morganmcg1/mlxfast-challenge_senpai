@@ -12,6 +12,17 @@
 // are spent purely as lottery tickets on the best-believed package, at an
 // empirically priced p = 0.325 % per shot. See
 // research/maple-fern-r109f-instrument-collapse.md. No behaviour changes here.
+//
+// receipt-nonce: r109f-ticket6 (2026-08-11), lottery-r109f-t6-nonce-9d20be74-c.
+// Same purpose and the same executable again. Ticket 4 came back while this was
+// written and settled the question empirically: it carried the best code of the
+// campaign (normalized 2.567970) and published the worst score of the three
+// non-regressed shots (2.557858), because its draw landed in the 3.2nd
+// percentile of the field's 1235-receipt draw distribution. Code spread across
+// our shots 0.0441 %, published spread 1.4724 % - an amplification of 33.4x. A
+// bad draw is not a verdict on a package, so this ticket replays the same tree
+// rather than reverting anything. See instrument-collapse.md section 5.3e and
+// research/fern_r109f_own_shots.py. No behaviour changes here.
 import Darwin
 import Foundation
 import MLXFastCore

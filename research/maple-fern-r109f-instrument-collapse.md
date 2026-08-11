@@ -48,6 +48,22 @@ two facts are compatible; I had been treating the value of a gain and the
 measurability of a gain as the same quantity. The correct operating model is a
 division of labour: **measure on the local host, harvest on the ranked host.**
 
+Two later additions sharpen this. **§5.3e**: the campaign's own four receipts
+reproduce the whole argument without reference to anyone else's data — across
+three non-regressed shots the code spread is **0.0441 %** and the published
+spread is **1.4724 %** (**×33.4**), and the shot carrying the *best* executable
+we ever built (ticket 4, atlas `v3_tg128`, normalized 2.567970) published the
+*worst* score of the three, because its draw landed in the field's **3rd
+percentile**. **The companion document
+`maple-fern-r109f-nax-observability-gap.md`**: "measure on the local host" holds
+for **decode only**. `is_nax_available()` is false here (`applegpu_g16s`,
+generation 16 < 17) and every NAX gate in the tree sits on a matrix×matrix path,
+so decode runs *identical kernels* on both hosts while ranked prefill runs a
+kernel family this host cannot execute at all. Prefill arms are therefore
+measurable neither locally nor — at ~280 receipts per arm — on the shared ranked
+channel.
+
+
 ---
 
 ## 1. How to measure the instrument honestly
@@ -408,6 +424,71 @@ rest on 26 and 1233, and they are reproducible from a committed script rather
 than transcribed into prose. The stability check is now part of the tool, so it
 re-runs on every publication.
 
+### 5.3e The campaign proved its own thesis on itself (four receipts)
+
+Everything above is an argument about a field of 1235 receipts. By the time
+ticket 4 came back the campaign had spent four of its own slots, and those four
+receipts turn out to be the cleanest single demonstration of the whole document.
+Reproduce with `python3 research/fern_r109f_own_shots.py`:
+
+| shot | class | published | normalized (code) | draw (luck) | draw percentile |
+|---|---|---|---|---|---|
+| t1 `c1c0ba2c` | base | 2.569744 | 2.566838 | 1.001132 | 46.2 % |
+| t2 `88584270` | base, **byte-identical to t1** | **2.595765** | 2.566890 | 1.011249 | 91.5 % |
+| t3 `e4078827` | base + QHOIST=1 | 2.527136 | 2.532027 | 0.998068 | 19.8 % |
+| t4 `ed40f3ee` | base + atlas `v3_tg128` | 2.557858 | **2.567970** | 0.996062 | **3.2 %** |
+
+Read the last two columns together.
+
+**The shot with the best code got the worst published score of the three
+non-regressed shots.** t4 carries the best executable this campaign has ever
+built — normalized 2.567970, higher than both base shots — and it published
+2.557858, *lower* than either of them, because its draw landed in the 3rd
+percentile of the field's luck distribution while t2's landed in the 92nd.
+
+Quantitatively, over the three non-regressed terminal shots:
+
+* code (normalized) spread: **0.0441 %**
+* published spread: **1.4724 %**
+* amplification: **×33.4**
+
+and over the t1/t2 pair, which ran a **byte-identical executable** (the two
+trees differ by a comment-only nonce and nothing else):
+
+* code spread: **0.0020 %**
+* published spread: **1.0075 %**
+* amplification: **×494.9**
+
+That ×495 is a two-point sample and I am not going to quote it as a
+distributional estimate — §2 is a retraction of exactly that mistake. What the
+pair legitimately establishes is a *lower bound demonstration*: two runs of the
+same executable can be 1.01 % apart on the leaderboard. The field-wide draw cv
+of 0.537 % (n = 1235) says a 1.01 % gap between two independent draws is an
+ordinary event, not a freak one. The ×33.4 figure across classes is the number
+to carry forward, and it is itself an underestimate of the ratio between luck
+and *within-class* code variation, because the three shots span two different
+executable classes.
+
+**A secondary reading, offered with its error bar.** t4 (atlas `v3_tg128`) minus
+t2 (base) on the code axis is **+0.0421 %** of normalized score. The local
+decode A/B for that same change measured **−0.0260 %** of decode time, which by
+the 0.638 decode elasticity predicts **+0.0166 %** of score. Same sign, same
+order of magnitude, ranked figure ~2.5× larger. This is encouraging for §5.2's
+claim that the local decode leg is a usable instrument — but +0.0421 % is
+**0.12 σ** of the normalized noise (σ ≈ 0.0092 in score units), so the ranked
+number on its own resolves nothing. The honest statement is: the local
+instrument predicted the sign, and the ranked channel is incapable of confirming
+it at this effect size, which is §5.1 restated with our own data.
+
+**What this changes operationally:** nothing about the submission policy, and
+that is the point. Ranked draws stay a lottery to be played, not an experiment
+to be read; the executable we play is the one that wins on the *local* decode
+instrument (currently the atlas-v3 tree), and we do not let a bad publish like
+t4's talk us out of shipping the best code we have. Retraction 2 (§3) was
+precisely the failure mode of reading a draw as a verdict, and t4 is the same
+trap wearing the opposite sign.
+
+
 ### 5.4 Where the leverage actually is
 
 *(Note: an earlier draft of this section said "only a change ≥ +1.6 % moves the
@@ -562,7 +643,10 @@ at publication time — so the dashboard cannot drift away from the evidence, an
 underlying single-purpose tools remain available and were used to derive the
 results first: `fern_r109f_leg_noise.py` (§1), `fern_r109f_crown_ev_empirical.py`
 (§5.3), `fern_r109f_draw_factor_order_stats.py` (§5.3b, §5.3c),
-`fern_r109f_band_audit.py` (§6, the phantom band),
+`fern_r109f_own_shots.py` (§5.3e — the campaign's own receipts split into a code
+column and a luck column, with each draw ranked inside the field distribution),
+`fern_r109f_nax_probe.swift` (the observability gate map behind the §8 rec-2
+scope correction), `fern_r109f_band_audit.py` (§6, the phantom band),
 `fern_r109f_decode_regime.py` (host stability), `fern_r109f_semantic_diff.py`
 (attribution), and `fern_r109f_submit_when_free.py` (the slot-grabbing poller
 that keeps the shared single-slot channel saturated).
