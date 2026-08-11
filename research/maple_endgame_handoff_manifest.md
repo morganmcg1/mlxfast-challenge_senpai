@@ -1520,8 +1520,14 @@ producing a bound that appeared to get **worse** after a clean observation. Rule
     "wait for the queue to drain, then trust it": five minutes later the head axis went backwards**,
     one batch carrying four stale heads and one exactly-live head while the base field crawled through
     four SHAs 49→46 commits behind. Freshness is per-field, per-object and non-monotone; there is no
-    moment at which the stream becomes reliable. Only the object's own state held still all day.
-    §10(xvii), 17:54Z and 17:59Z.
+    moment at which the stream becomes reliable. Only the object's own state held still all day. At
+    18:03Z the worst case arrived — **three `review_ready` events whose heads were all exactly live**
+    (#730, #733, #686), a lease that would have passed on all three at once — and one more trap with it:
+    a single batch replayed #686's own branch history in order, ending at the live tip, which makes
+    *"take the last event and its head is live"* look like a rule. It is an artefact of one replay's
+    ordering. **The only invariant: the challenge is closed and every Maple PR is closed, so no event of
+    any shape is actionable — verify that pair and ignore the payload.** §10(xvii), 17:54Z / 17:59Z /
+    18:03Z; later batches of the same kind are deliberately not logged.
 
 ---
 
@@ -2526,6 +2532,24 @@ durable check is the one that does not consult the message at all: I re-read all
 every one is `State: closed`, so this batch, like the last, is inert for the same reason the last one
 was — the objects are closed and the challenge is over. That reason has not changed once today, while
 the stream's story about it has changed in four different directions.]*
+
+*[**18:03Z — the worst case, delivered, and then a stopping rule.** The next batch produced the
+strongest form of the trap: **three `review_ready` events whose heads were all exactly live** — #730 at
+`530dcf36`, #733 at `a36b96ae`, #686 at `bd475704`, each matching `git ls-remote` to the character. A
+mutation keyed to `expected_pr_head_sha` would have passed on all three simultaneously. What stopped
+it was the same single fact as every other batch: re-read live, all four PRs in the batch (#686, #730,
+#733, #741) are `State: closed`. One new structural detail worth carrying: **within this one batch #686
+emitted its own branch history in order** — `a3a126cc` (12:06:45Z) and then `bd475704` (12:17:08Z, the
+tip) — the same replay-a-sequence behaviour the base field shows, now on the head field. The trap that
+creates is specific and tempting: *take the last event for a PR and its head is live*. It was live here.
+That is a property of this replay's ordering, not a guarantee, and leaning on it is error fifteen
+again with an extra step. The base field meanwhile crawled `7a0b8d24` → `77580a48` (12:18:00Z), still
+46 commits and ~6 hours behind — the asymmetry has never once closed.
+**Stopping rule for this log:** rule 29 is now confirmed by three independent batches (17:54Z, 17:59Z,
+18:03Z) and further instances of stale/live/`review_ready` traffic against closed PRs will **not** be
+recorded individually — the record is complete, not truncated. The invariant to carry forward is the
+one line: **the challenge is closed and every Maple PR is closed, so no event of any shape is
+actionable; verify that pair, and ignore the payload.**]*
 
 **2. The two off-branch artifacts of §10(vii) (error 11) are now vendored, byte-for-byte.** The
 closed-unmerged student branches are still on the remote, and this clone's narrow default refspec is
