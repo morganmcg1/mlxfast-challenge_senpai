@@ -135,7 +135,9 @@ def main():
     print("  P(clear the bar) by (1 - failure rate) to get the real per-fire value:")
     recent = terminal[-40:]
     fr = sum(1 for r in recent if r[2] == "failed") / len(recent)
-    for p, name in ((0.0095, "model, normal tail"), (0.0148, "model, empirical tail")):
+    for p, name in ((0.000367, "measured sd, F19"),
+                    (0.0095, "fern sd, normal tail"),
+                    (0.0148, "fern sd, empirical")):
         print(f"    {name:<24} {p * 100:.2f}%  ->  {p * (1 - fr) * 100:.2f}% "
               f"after the {fr * 100:.0f}% recent failure rate")
     print()
@@ -145,10 +147,18 @@ def main():
     print("  the best was", f"{max(allv):.8f}", f"({(max(allv)/BAR - 1)*100:+.4f}% vs bar).")
     print("  Rule of three on the full record bounds P(one draw >= bar) at",
           f"<= {3.0/len(allv)*100:.2f}%.")
-    print("  Brief sec.2's model-based 0.95%-1.48% sits inside that bound, so the model")
-    print("  survives a check that assumes no distribution at all. Anything like the")
-    print("  retracted 15.6% does not: at p=0.156, seeing 0 clears in", len(allv),
-          "draws has")
+    print("  Every candidate for brief sec.2 sits inside that bound: the measured")
+    print("  0.04% (#741 F19: sd(ln official) = 0.3728%, n=5, this program) and")
+    print("  fern's 0.95%-1.48% (pooled draw sd 0.538%) alike. A ceiling cannot")
+    print("  corroborate a point estimate - it only refutes what lies above it - so")
+    print("  read this line as 'not refuted', and take the per-draw price from the")
+    print("  measured sigma above.")
+    print("  One trap: research/tools/recompute_replicate_sigma_and_draw_odds.py also")
+    print("  prints 1.48%, from sd 0.2276% and a 0.4950% gap for a different program")
+    print("  (e27f1ce, normal tail z=2.174); fern's 1.48% is an empirical tail at")
+    print("  z=2.344 on sd 0.538%. Same number, unrelated inputs - not a replication.")
+    print("  What the ceiling does refute is the retracted 15.6%: at p=0.156, seeing")
+    print("  0 clears in", len(allv), "draws has")
     print("  probability", f"{(1-0.156)**len(allv):.3g}", "- which is why that number was wrong.")
     print()
     print("What this does NOT show: these rows are not one program, so the sd printed")

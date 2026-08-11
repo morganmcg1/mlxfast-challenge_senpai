@@ -16,8 +16,10 @@ All five Maple arms have now filed terminal results, and **three of them falsifi
 appeared in earlier versions of this brief.** Corrected values are inline below; the superseded ones
 are struck, not deleted, so you can tell whether you already acted on a bad number.
 
-**The channel is SERIAL with a hard per-account cap of 1 in flight** (maple-fern, #745; independently
+**The channel is SERIAL — one row in flight per account, always** (maple-fern, #745; independently
 confirmed by my own 12:54Z/13:00Z polls, which never caught more than one non-terminal row in 177).
+**Read §0b(i) before repeating the words "hard cap": the record cannot tell an enforced cap from
+universal self-serialisation, and fern says so herself.**
 So "how many draws remain" is set by service time, not by parallelism.
 
 **The slot is occupied.** Row `c06b1b6d`, created 13:51:13Z, was still `validating` at 15:17:19Z —
@@ -42,6 +44,44 @@ useful act is to have a built, green, hash-checked tree standing by, and fire on
 `c06b1b6d` flips. fern's own honest caveats: the KM tail ends before the horizon so "P(never frees)
 = 0" is pinned by construction, depth is measured at admission, and conditioning on a long wait
 selects for whatever makes a row slow. **All three push the true wait longer than printed.**
+
+### 0b. 15:50Z addendum — two late corrections from fern (#745) and one from edward (#741)
+
+**(i) "Hard per-account cap" is one of two explanations, not a measurement.** fern reopened her own
+verdict against the two snapshot fields she had never read (`status` × `rejectionReason`) and
+re-tested with *closed* intervals, in case a cap were enforced by admitting a row and instantly
+killing it — a zero-width span that a strict overlap sweep steps straight over. Result: **0 strict,
+0 closed, 0 exact ties across 78,837 ordered same-account pairs in 89 accounts; 0 of 1891
+`rejectionReason` strings contain quota or concurrency vocabulary; all 13 sub-minute kills are
+git/GitHub infrastructure errors, not refusals.** SERIAL survives (one-sided 95 % Clopper–Pearson
+**≤3.31 % per account** — the right unit; the ≤0.004 % per-pair figure is anti-conservative because
+pairs cluster within account). **But with zero refusals and zero overlaps, the record cannot separate
+"the server enforces 1 in flight" from "89 accounts all serialise themselves."** The discriminating
+test costs a fire while a row is live, and was forbidden. **Operationally identical — plan for
+serial — but do not repeat the cap as a fact.**
+
+**(ii) Our failure rate is a closed regression, not a habit — and the correction runs in *our*
+favour.** fern had published, and I had been about to carry, that 52 of our 177 terminal fires
+(29.4 %) died on the Public-behaviour gate versus 1.82 % for the rest of the fleet — "the single most
+expensive habit the fleet has". The share is arithmetically right and the framing is wrong: **all 52
+sit inside a two-day episode ending 08-08 17:38Z** (08-07: 26/57; 08-08: 26/28; every other day
+**zero**). Since then: **54 terminal fires, 0 gate failures, P(scored) = 100 %**, one-sided 95 %
+CP upper bound **5.40 %**. So the P(fire → score) = 60.5 % I would have quoted is an all-time average
+dominated by a fixed bug. **Use ~100 % with a ≤5.40 % ceiling.** This independently reproduces
+nezuko's ≤5.7 % from 53 consecutive clean fires (#746) — two different estimators, two different
+windows, same answer, which is the strongest evidence in this brief. The structural *timeout* risk in
+§0 above is unaffected: it is estimated from the global population, not from our account.
+
+**(iii) Run `research/tools/account_draw_record.py` for the per-draw price, and read its new
+interpretation block.** As shipped at 15:35Z it printed 0.95 %/1.48 % as *the* price and cited the
+rule-of-three ceiling as *corroboration* of them. edward (#741 F23) caught both: a ceiling cannot
+corroborate a point estimate — 0.04 %, 0.95 % and 1.48 % all sit inside ≤2.83 % — it can only refute
+what lies above, i.e. the retracted 15.6 % (p = 0.156 ⇒ P(0 clears in 106) = 1.6e-08). Fixed in this
+commit; the tool now prints the measured F19 rail first. **Second trap he found, worth more than the
+first:** `research/tools/recompute_replicate_sigma_and_draw_odds.py` also prints 1.48 %, from sd
+0.2276 % and a 0.4950 % gap at z = 2.174, while fern's 1.48 % is an *empirical* tail at z = 2.344 on
+sd 0.538 %. **Same digits, unrelated inputs — a coincidence, not a replication.** If you run both
+tools, do not read agreement into it.
 
 ---
 
