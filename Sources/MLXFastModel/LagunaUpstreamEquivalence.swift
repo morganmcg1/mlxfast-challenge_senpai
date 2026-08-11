@@ -67,22 +67,10 @@ public enum LagunaUpstreamEquivalence {
         try loader.denseStore.validateReadableByteRanges()
         try loader.validateRequiredMetadata(config: runtimeConfig)
 
-        // Keep compact router arrays for the scored runtime, but expand them
-        // for the vendored model, whose parameter shape remains dense.
+        // Load the 21.6 GB tensor set once, then install the same MLXArray
+        // objects into both module trees. Their random initializer graphs stay
+        // lazy and are overwritten before either model is evaluated.
         let loadedWeights = try loadRuntimeWeightArrays(denseStore: loader.denseStore)
-        var upstreamWeights = loadedWeights
-        for (key, payload) in loadedWeights
-        where key.hasSuffix(".mlp.gate.weight") && payload.dtype == .uint8 {
-            let offsetsKey = key + "_row_offsets"
-            guard let offsets = loadedWeights[offsetsKey] else {
-                throw MLXFastError.invalidInput(
-                    "Laguna compact router \(key) is missing \(offsetsKey)"
-                )
-            }
-            upstreamWeights[key] = lagunaExpandRouter(payload, offsets: offsets)
-            upstreamWeights.removeValue(forKey: offsetsKey)
-        }
-
         let runtime = LagunaRuntimeModel(runtimeConfig)
         let upstream = LagunaModel(upstreamConfig)
         try runtime.update(
@@ -93,7 +81,7 @@ public enum LagunaUpstreamEquivalence {
         )
         try upstream.update(
             parameters: ModuleParameters.unflattened(
-                upstream.sanitize(weights: upstreamWeights)
+                upstream.sanitize(weights: loadedWeights)
             ),
             verify: [.all]
         )

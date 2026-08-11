@@ -849,27 +849,54 @@ private let lagunaNormReductionTailQKV = lagunaNormReductionTail(
     lane: "lane", simdGroup: "simd_group",
     denominator: "float(in_vec_size)", epsilon: "norm_eps")
 
-private let lagunaCompactRouterHeader = """
-METAL_FUNC bfloat laguna_router_value(
-    const device uchar* data, const device uint* offsets,
-    uint row, uint column
-) {
-    uint tagged = offsets[row];
-    uint base = tagged & 0x7fffffffu;
-    ushort bits;
-    if ((tagged & 0x80000000u) != 0u) {
-        bits = ushort(data[base + 2 * column]) |
-            (ushort(data[base + 2 * column + 1]) << 8);
-    } else {
-        uchar packed = data[base + 2048 + (column >> 1)];
-        uchar index = (column & 1) != 0 ? (packed >> 4) : (packed & 15);
-        bits = ushort(data[base + column]) |
-            (ushort(data[base + 3072 + index]) << 8);
-    }
-    return as_type<bfloat>(bits);
-}
-"""
-
+/// Post-attention residual add + RMSNorm with the MoE router's projection
+/// folded in.
+///
+/// Every sparse layer follows this norm with a `[256, 2048]` BF16 GEMV whose
+/// only input is the normalized row, so that GEMV is the very next link in the
+/// dependency chain and nothing can overlap it. Folding it in costs each
+/// threadgroup a redundant 4 KB read of the normalized row it just produced
+/// and removes a kernel from the chain.
+///
+/// Exactness: the router half replicates MLX's gemv for out_vec 256 and in_vec
+/// 2048, which selects BM 4, BN 1, SM 1, SN 32, TM 4, TN 4. Lane `l` covers
+/// columns `4l + 128i`, products accumulate in `i` then `tn` order in FP32,
+/// and the simdgroup reduces with the same `simd_shuffle_down` ladder before
+/// one BF16 round. The norm half is untouched.
+///
+/// `rowsPerGroup` (see `DARKBLOOM_ROUTER_ROWS_PER_GROUP`) chooses only WHICH
+/// THREADGROUP OWNS WHICH ROW. 256 divides evenly by 64/32/16/8, every row
+/// keeps its own private accumulator and its own `(block, i)` K-loop, and no
+/// add is regrouped. **At `rowsPerGroup == 64` this emits the pre-widening
+/// kernel** — no guard, no unroll, the same four-element initializer, and
+/// `tile * rows_per_group` is the literal 64 the old
+/// `tile * (simd_size * rows_per_thread / 2)` folded to. That is what makes
+/// `DARKBLOOM_ROUTER_ROWS_PER_GROUP=64` a null by construction and therefore a
+/// usable control (`notes/50` §7e).
+///
+/// Below 16 rows per group there are fewer rows than simdgroups, so
+/// `rows_per_thread` bottoms out at 1 and the surplus simdgroups sit out the
+/// router phase behind `active_simd_groups`. They still run the norm, which
+/// needs all 512 threads, and the guard opens *after* the norm's
+/// `threadgroup_barrier` and closes *after* the logit write, so no thread is
+/// skipped past a barrier and no row goes unwritten.
+///
+/// At `rows_per_thread == 1` the block loop is also unrolled four deep. This
+/// is the load-level-parallelism half of `notes/50` §6b-ter: `tiles *
+/// rows_per_group == 256` at every tiling, so retiling alone cannot add a
+/// single outstanding load and leaves in-flight bytes pinned at 64 KB — which
+/// is the whole of the measured 140 GB/s. Hoisting four blocks' weight loads
+/// takes that to 256 KB.
+///
+/// **LOADS ONLY.** `router_result[0]` stays a single accumulator stepped in
+/// strict `(block, i)` order: block 0's four products, then block 1's, and so
+/// on into the same register. Giving each unrolled step its own partial and
+/// summing the four at the end would regroup 64 sequential FP32 adds into a
+/// tree — bit-exactness lost, every local check still green, the hidden
+/// exact-token gate failed. `router_blocks == 16` and `16 % 4 == 0`, so there
+/// is no tail. The `normalized_row` coefficients are read inline rather than
+/// staged: at one row per thread both cost `n_reads` threadgroup reads per
+/// block, so staging would buy nothing and cost 16 registers per unroll step.
 private func lagunaResidualRMSNormRouterSource(rowsPerGroup: Int) -> String {
     let simdGroups = 512 / 32
     let rowsPerThread = rowsPerGroup >= simdGroups ? rowsPerGroup / simdGroups : 1
@@ -897,11 +924,11 @@ private func lagunaResidualRMSNormRouterSource(rowsPerGroup: Int) -> String {
         for (uint block = 0; block < router_blocks; block += 4) {
             vec<bfloat, 4> rw[4];
             for (uint u = 0; u < 4; ++u) {
-                uint column_u = column + u * block_width;
-                for (uint i = 0; i < n_reads; ++i) {
-                    rw[u][i] = laguna_router_value(
-                        router_weight, router_offsets, router_row, column_u + i);
-                }
+                const device vec<bfloat, 4>* row_values =
+                    (const device vec<bfloat, 4>*)(
+                        router_weight + router_row * axis_size +
+                            column + u * block_width);
+                rw[u] = row_values[0];
             }
             for (uint u = 0; u < 4; ++u) {
                 uint column_u = column + u * block_width;
@@ -923,11 +950,11 @@ private func lagunaResidualRMSNormRouterSource(rowsPerGroup: Int) -> String {
                 router_input[i] = float(normalized_row[column + i]);
             }
             for (uint r = 0; r < rows_per_thread; ++r) {
-                vec<bfloat, 4> rw;
-                for (uint i = 0; i < n_reads; ++i) {
-                    rw[i] = laguna_router_value(
-                        router_weight, router_offsets, router_row + r, column + i);
-                }
+                const device vec<bfloat, 4>* row_values =
+                    (const device vec<bfloat, 4>*)(
+                        router_weight + (router_row + r) * axis_size +
+                            column);
+                const vec<bfloat, 4> rw = row_values[0];
                 for (uint i = 0; i < n_reads; ++i) {
                     router_result[r] += float(rw[i]) * router_input[i];
                 }
@@ -1017,15 +1044,14 @@ private let lagunaResidualRMSNormRouterKernels: [Int: MLXFast.MLXFastKernel] =
                     name: "laguna_residual_rms_router_bf16_2048_rpg\(rowsPerGroup)_"
                         + (lagunaRouterPrecomputedKeysEnabled ? "keys_v1" : "v2"),
                     inputNames: lagunaRouterPrecomputedKeysEnabled
-                        ? ["residual", "branch", "weight", "router_weight", "router_offsets", "correction_bias"]
-                        : ["residual", "branch", "weight", "router_weight", "router_offsets"],
+                        ? ["residual", "branch", "weight", "router_weight", "correction_bias"]
+                        : ["residual", "branch", "weight", "router_weight"],
                     outputNames: lagunaRouterPrecomputedKeysEnabled
                         ? ["summed", "normalized", "router_logits", "router_keys"]
                         : ["summed", "normalized", "router_logits"],
                     source: lagunaResidualRMSNormRouterSource(rowsPerGroup: rowsPerGroup),
-                    header: lagunaCompactRouterHeader
-                        + (lagunaRouterPrecomputedKeysEnabled
-                            ? "\n" + lagunaDecodeRouterOrdinalHeader : ""),
+                    header: lagunaRouterPrecomputedKeysEnabled
+                        ? lagunaDecodeRouterOrdinalHeader : "",
                     ensureRowContiguous: true
                 )
             )
@@ -1075,7 +1101,7 @@ for (uint i = 0; i < n_reads; ++i) {
 
 func lagunaResidualRMSNormRouter(
     residual: MLXArray, branch: MLXArray, weight: MLXArray,
-    routerWeight: MLXArray, routerOffsets: MLXArray, correctionBias: MLXArray
+    routerWeight: MLXArray, correctionBias: MLXArray
 ) -> (summed: MLXArray, normalized: MLXArray, routerLogits: MLXArray,
     routerKeys: MLXArray?) {
     let hidden = LagunaConstants.hiddenSize
@@ -1083,24 +1109,27 @@ func lagunaResidualRMSNormRouter(
     precondition(residual.dtype == .bfloat16)
     precondition(branch.dtype == .bfloat16)
     precondition(weight.dtype == .bfloat16)
-    precondition(routerWeight.dtype == .uint8)
-    precondition(routerOffsets.dtype == .uint32)
+    precondition(routerWeight.dtype == .bfloat16)
     precondition(correctionBias.dtype == .float32 || correctionBias.dtype == .bfloat16)
     precondition(residual.dims(1, 1, hidden))
     precondition(branch.dims(1, 1, hidden))
     precondition(weight.dims(hidden))
-    precondition(routerWeight.ndim == 1)
-    precondition(routerWeight.size >= experts * (hidden + hidden / 2 + 16))
-    precondition(routerWeight.size <= experts * hidden * 2)
-    precondition(routerOffsets.dims(experts))
+    precondition(routerWeight.dims(experts, hidden))
     precondition(correctionBias.dims(experts))
 
+    // `rows_per_group` router rows per threadgroup, so 256 / rows_per_group
+    // tiles. Divides exactly for 64/32/16/8/4/2/1 (4..256 tiles), so no partial
+    // tile is dispatched and no row is computed twice or missed. The 512-thread
+    // threadgroup and `n_reads == 4` are NOT knobs: they are load-bearing for
+    // the `rms_single_row` correspondence (each thread squares its own
+    // contiguous four elements), and moving either regroups the FP32 RMS
+    // summation and forfeits bit-exactness.
     let rowsPerGroup = lagunaRouterRowsPerGroup
     let tiles = experts / rowsPerGroup
     lagunaTrace("residual+rmsnorm+router rpg\(rowsPerGroup)")
     let inputs = lagunaRouterPrecomputedKeysEnabled
-        ? [residual, branch, weight, routerWeight, routerOffsets, correctionBias]
-        : [residual, branch, weight, routerWeight, routerOffsets]
+        ? [residual, branch, weight, routerWeight, correctionBias]
+        : [residual, branch, weight, routerWeight]
     let outputs = lagunaResidualRMSNormRouterKernels[rowsPerGroup]!(
         inputs,
         grid: (tiles * 512, 1, 1),
@@ -1132,42 +1161,6 @@ func lagunaResidualRMSNorm(
         outputDTypes: [.bfloat16, .bfloat16]
     )
     return (outputs[0], outputs[1])
-}
-
-private let lagunaExpandRouterKernel = MLXFast.metalKernel(
-    name: "laguna_expand_router_highbyte_v1",
-    inputNames: ["data", "offsets"],
-    outputNames: ["dense"],
-    source: """
-uint index = thread_position_in_grid.x;
-uint row = index / 2048;
-uint column = index - row * 2048;
-uint tagged = offsets[row];
-uint base = tagged & 0x7fffffffu;
-ushort bits;
-if ((tagged & 0x80000000u) != 0u) {
-    bits = ushort(data[base + 2 * column]) |
-        (ushort(data[base + 2 * column + 1]) << 8);
-} else {
-    uchar packed = data[base + 2048 + (column >> 1)];
-    uchar paletteIndex = (column & 1) != 0 ? (packed >> 4) : (packed & 15);
-    bits = ushort(data[base + column]) |
-        (ushort(data[base + 3072 + paletteIndex]) << 8);
-}
-dense[index] = as_type<bfloat>(bits);
-""",
-    ensureRowContiguous: true
-)
-
-func lagunaExpandRouter(_ data: MLXArray, offsets: MLXArray) -> MLXArray {
-    let count = LagunaConstants.numExperts * LagunaConstants.hiddenSize
-    return lagunaExpandRouterKernel(
-        [data, offsets],
-        grid: (count, 1, 1),
-        threadGroup: (256, 1, 1),
-        outputShapes: [[LagunaConstants.numExperts, LagunaConstants.hiddenSize]],
-        outputDTypes: [.bfloat16]
-    )[0]
 }
 
 // MARK: - Attention
@@ -10082,21 +10075,22 @@ final class LagunaRuntimeMoEGate: Module {
     let routerLogitSoftcapping: Float
 
     @ParameterInfo(key: "weight") var weight: MLXArray
-    @ParameterInfo(key: "weight_row_offsets") var weightRowOffsets: MLXArray
     @ParameterInfo(key: "e_score_correction_bias") var eScoreCorrectionBias: MLXArray
 
     init(_ config: LagunaConfig) {
         self.topK = config.numExpertsPerTok
         self.normTopkProb = config.normTopkProb
         self.routerLogitSoftcapping = Float(config.moeRouterLogitSoftcapping)
-        self._weight.wrappedValue = zeros([1], dtype: .uint8)
-        self._weightRowOffsets.wrappedValue = zeros([config.numExperts], dtype: .uint32)
+        self._weight.wrappedValue = zeros([config.numExperts, config.hiddenSize])
         self._eScoreCorrectionBias.wrappedValue = zeros([config.numExperts])
     }
 
+    /// `logits` is this layer's router projection when an upstream kernel in
+    /// the same invocation already produced it (the fused residual + RMSNorm +
+    /// router dispatch). It is the identical `x @ weight.T` this method would
+    /// otherwise issue.
     func callAsFunction(_ x: MLXArray, logits: MLXArray? = nil) -> (MLXArray, MLXArray) {
-        let projectedLogits = logits
-            ?? x.matmul(lagunaExpandRouter(weight, offsets: weightRowOffsets).T)
+        let projectedLogits = logits ?? x.matmul(weight.T)
         let inds: MLXArray
         var weights: MLXArray
         if lagunaPrefillRouterTournamentEnabled,
@@ -11035,17 +11029,14 @@ final class LagunaRuntimeDecoderLayer: Module {
             postAttentionLayerNorm.weight.dtype == .bfloat16,
             x.dims(1, 1, LagunaConstants.hiddenSize), x.sameDims(r),
             let sparse = mlp as? LagunaRuntimeSparseMoEBlock,
-            sparse.gate.weight.dtype == .uint8,
-            sparse.gate.weight.ndim == 1,
-            sparse.gate.weightRowOffsets.dtype == .uint32,
-            sparse.gate.weightRowOffsets.dims(LagunaConstants.numExperts)
+            sparse.gate.weight.dtype == .bfloat16,
+            sparse.gate.weight.dims(LagunaConstants.numExperts, LagunaConstants.hiddenSize)
         {
             let fused = lagunaResidualRMSNormRouter(
                 residual: x,
                 branch: r,
                 weight: postAttentionLayerNorm.weight,
                 routerWeight: sparse.gate.weight,
-                routerOffsets: sparse.gate.weightRowOffsets,
                 correctionBias: sparse.gate.eScoreCorrectionBias)
             h = fused.summed
             normalized = fused.normalized
@@ -11135,17 +11126,14 @@ final class LagunaRuntimeDecoderLayer: Module {
                 lastResidual.dims(1, 1, LagunaConstants.hiddenSize),
                 lastResidual.sameDims(r),
                 let sparse = mlp as? LagunaRuntimeSparseMoEBlock,
-                sparse.gate.weight.dtype == .uint8,
-                sparse.gate.weight.ndim == 1,
-                sparse.gate.weightRowOffsets.dtype == .uint32,
-                sparse.gate.weightRowOffsets.dims(LagunaConstants.numExperts)
+                sparse.gate.weight.dtype == .bfloat16,
+                sparse.gate.weight.dims(LagunaConstants.numExperts, LagunaConstants.hiddenSize)
             {
                 let fused = lagunaResidualRMSNormRouter(
                     residual: lastResidual,
                     branch: r,
                     weight: postAttentionLayerNorm.weight,
                     routerWeight: sparse.gate.weight,
-                    routerOffsets: sparse.gate.weightRowOffsets,
                     correctionBias: sparse.gate.eScoreCorrectionBias)
                 h = fused.summed
                 normalizedAfterAttention = fused.normalized

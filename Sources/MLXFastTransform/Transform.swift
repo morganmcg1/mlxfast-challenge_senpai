@@ -39,12 +39,60 @@ public struct TransformReport: Equatable {
     }
 }
 
+/// Model family of the source reference checkpoint, detected from its
+/// config.json. The transform supports the pinned Poolside Laguna XS 2.1
+/// MoE target (flat config with `model_type` "laguna", untied head) and the
+/// legacy Gemma 4 multimodal layout (nested `text_config`, tied head).
+///
+/// The legacy `.gemma4` family no longer has a runtime consumer (the Gemma 4
+/// runtime and its MTP track were removed); it is retained here deliberately
+/// as the only source-config family whose full transform pipeline (staging,
+/// atomic install, revalidation, verifier) can be exercised end to end with
+/// small synthetic fixtures -- the Laguna family requires the exact pinned
+/// 912-tensor inventory with real shapes.
 enum TransformModelFamily: Equatable {
     case gemma4
     case laguna
 }
 
+/// Offline transform for the pinned reference checkpoint: selects ONLY the
+/// text-tower tensors (`model.*` / `lm_head.*` for Poolside Laguna;
+/// `language_model.*` for legacy Gemma), drops every vision/audio/
+/// multimodal-projector tensor, and rewrites the
+/// selected tensors into dense safetensors shard(s) plus a
+/// `model.safetensors.index.json` and a runtime-authored `config.json`.
+///
+/// Two source checkpoint families are supported, detected from the source
+/// config.json:
+///
+/// - Poolside Laguna XS 2.1 NVFP4 (flat config, `model_type` "laguna"): the
+///   ranked serial-track target. The source is already MLX NVFP4-quantized,
+///   so the transform validates and passes through -- byte-for-byte, source
+///   tensor names unchanged -- the BF16/NVFP4 tensor set described by
+///   `docs/laguna-weight-contract.md`: attention
+///   q/k/v/o projections plus the per-head `g_proj` gates and q/k norms,
+///   the layer-0 dense MLP, the SwitchGLU-STACKED `mlp.switch_mlp.*` NVFP4
+///   expert tensors (leading experts axis; never split per expert), the raw
+///   BF16 `mlp.gate.weight` routers with their F32 correction vectors, the
+///   NVFP4 shared experts, and the untied BF16 `lm_head`. The
+///   contract forbids derived metadata sidecars (the Gemma projection and
+///   tied-head packed13 sidecars are never emitted for Laguna) and requires
+///   `rotary_emb.inv_freq` tables to be left out. The runtime config.json is
+///   the flat source config minus the empty `vision_config`, carrying the
+///   checkpoint's matching NVFP4 4-bit group-16 `quantization` and
+///   `quantization_config` blocks.
+/// - Legacy Gemma 4 31B 4-bit (nested `text_config`): the archived dense
+///   path, unchanged: flattened `text_config` runtime config plus the
+///   projection/tied-head metadata sidecars.
+///
+/// There is no expert streaming manifest -- the whole selected tree is one
+/// flat set of dense tensors, matching how the model (including every routed
+/// Laguna expert) is loaded fully into RAM at runtime init.
 public enum SwiftTransform {
+    /// Tensor name prefix that marks a checkpoint tensor as part of the text
+    /// tower. Every other prefix (`vision_tower.`, `embed_vision.`,
+    /// `audio_tower.`, `multi_modal_projector.`, ...) is vision/audio/
+    /// multimodal-glue and is out of scope for this text-only challenge.
     static let textTowerPrefix = "language_model."
 
     public static func run(_ options: TransformOptions) throws -> TransformReport {
@@ -104,15 +152,11 @@ public enum SwiftTransform {
             throw MLXFastError.invalidInput("checkpoint index contains no text-tower tensors")
         }
 
-        let routerKeys = modelFamily == .laguna
-            ? Set(textKeys.filter { $0.hasSuffix(".mlp.gate.weight") })
-            : Set<String>()
-        let copiedTextKeys = textKeys.subtracting(routerKeys)
-        let textKeysByShard = Dictionary(grouping: copiedTextKeys) { key in
+        let textKeysByShard = Dictionary(grouping: textKeys) { key in
             index.weightMap[key] ?? ""
         }
         var totalTensorByteCount = 0
-        for key in copiedTextKeys.sorted() {
+        for key in textKeys.sorted() {
             guard let shardName = index.weightMap[key],
                   let info = validatedHeaders[shardName]?.tensors[key]
             else {
@@ -191,10 +235,8 @@ public enum SwiftTransform {
         }
 
         try beforeSidecarGeneration?()
-        let emptyMetadata = GeneratedAffineMetadataReport(weightMap: [:], tensorByteCount: 0)
         let generatedProjectionMetadata: GeneratedAffineMetadataReport
         let generatedTiedHeadMetadata: GeneratedAffineMetadataReport
-        let generatedRouterMetadata: GeneratedAffineMetadataReport
         switch modelFamily {
         case .gemma4:
             generatedProjectionMetadata = try AffineMetadataCoding.writeProjectionSidecar(
@@ -211,43 +253,42 @@ public enum SwiftTransform {
                 selectedKeys: textKeys,
                 destinationDirectory: stagingDirectory
             )
-            generatedRouterMetadata = emptyMetadata
         case .laguna:
-            generatedProjectionMetadata = emptyMetadata
-            generatedTiedHeadMetadata = emptyMetadata
-            generatedRouterMetadata = try writeRouterSidecar(
-                sourceDirectory: referenceDirectory,
-                index: index,
-                sourceHeaders: validatedHeaders,
-                routerKeys: routerKeys,
-                destinationDirectory: stagingDirectory
+            // docs/laguna-weight-contract.md forbids derived layouts and
+            // metadata sidecars in the Poolside v2 contract, and the runtime loads exactly the
+            // indexed checkpoint tensors (its untied lm_head makes the
+            // Gemma tied-head packed13 sidecar meaningless anyway). Emit
+            // nothing beyond the pass-through tensor set.
+            generatedProjectionMetadata = GeneratedAffineMetadataReport(
+                weightMap: [:],
+                tensorByteCount: 0
+            )
+            generatedTiedHeadMetadata = GeneratedAffineMetadataReport(
+                weightMap: [:],
+                tensorByteCount: 0
             )
         }
         let (projectionOutputByteCount, projectionSizeOverflow) =
             totalTensorByteCount.addingReportingOverflow(
                 generatedProjectionMetadata.tensorByteCount
             )
-        let (tiedOutputByteCount, tiedHeadSizeOverflow) =
+        let (outputTensorByteCount, tiedHeadSizeOverflow) =
             projectionOutputByteCount.addingReportingOverflow(
                 generatedTiedHeadMetadata.tensorByteCount
             )
-        let (outputTensorByteCount, routerSizeOverflow) =
-            tiedOutputByteCount.addingReportingOverflow(generatedRouterMetadata.tensorByteCount)
-        guard !projectionSizeOverflow, !tiedHeadSizeOverflow, !routerSizeOverflow else {
+        guard !projectionSizeOverflow, !tiedHeadSizeOverflow else {
             throw MLXFastError.invalidInput("transformed tensor byte count overflows Int")
         }
-        let generatedWeightMap = generatedProjectionMetadata.weightMap
-            .merging(generatedTiedHeadMetadata.weightMap) { _, _ in
-                preconditionFailure("generated metadata tensor names collide")
-            }
-            .merging(generatedRouterMetadata.weightMap) { _, _ in
-                preconditionFailure("generated metadata tensor names collide")
-            }
+        let generatedWeightMap = generatedProjectionMetadata.weightMap.merging(
+            generatedTiedHeadMetadata.weightMap
+        ) { _, _ in
+            preconditionFailure("generated metadata tensor names collide")
+        }
 
         try writeMetadataFiles(metadataSnapshot, to: stagingDirectory)
         try index.writeStripped(
             to: stagingDirectory.appendingPathComponent("model.safetensors.index.json"),
-            keeping: copiedTextKeys,
+            keeping: textKeys,
             totalTensorByteCount: outputTensorByteCount,
             additionalWeightMap: generatedWeightMap
         )
@@ -296,142 +337,13 @@ public enum SwiftTransform {
             outputPath: outputDirectory.path,
             denseTensorCount: copiedTensors
                 + generatedProjectionMetadata.tensorCount
-                + generatedTiedHeadMetadata.tensorCount
-                + generatedRouterMetadata.tensorCount,
+                + generatedTiedHeadMetadata.tensorCount,
             denseShardCount: textKeysByShard.count
                 + generatedProjectionMetadata.shardCount
-                + generatedTiedHeadMetadata.shardCount
-                + generatedRouterMetadata.shardCount,
+                + generatedTiedHeadMetadata.shardCount,
             configPath: configPath.path,
             indexPath: indexPath.path
         )
-    }
-
-    private struct RouterTensor {
-        let name: String
-        let dtype: String
-        let shape: [Int]
-        let data: Data
-    }
-
-    private static func writeRouterSidecar(
-        sourceDirectory: URL,
-        index: CheckpointIndex,
-        sourceHeaders: [String: SafetensorsHeader],
-        routerKeys: Set<String>,
-        destinationDirectory: URL
-    ) throws -> GeneratedAffineMetadataReport {
-        let shardName = "mlxfast-router-highbyte.safetensors"
-        var tensors: [RouterTensor] = []
-        for name in routerKeys.sorted() {
-            guard let shard = index.weightMap[name],
-                  let header = sourceHeaders[shard],
-                  let info = header.tensors[name],
-                  info.dtype == "BF16", info.shape == [256, 2_048]
-            else {
-                throw MLXFastError.invalidInput("invalid Laguna router tensor \(name)")
-            }
-            let bytes = try tensorBytes(
-                named: name,
-                sourceDirectory: sourceDirectory,
-                index: index,
-                sourceHeaders: sourceHeaders
-            )
-            var payload = Data()
-            var offsets = Data(capacity: 1_024)
-            payload.reserveCapacity(256 * 3_088)
-            for row in 0..<256 {
-                let base = row * 4_096
-                var seen = [Bool](repeating: false, count: 256)
-                for column in 0..<2_048 {
-                    seen[Int(bytes[base + 2 * column + 1])] = true
-                }
-                let palette = seen.indices.filter { seen[$0] }
-                guard payload.count < 0x8000_0000 else {
-                    throw MLXFastError.invalidInput("router payload exceeds UInt31 capacity")
-                }
-                let fallback = palette.count > 16
-                var tagged = (UInt32(payload.count) | (fallback ? 0x8000_0000 : 0)).littleEndian
-                withUnsafeBytes(of: &tagged) { offsets.append(contentsOf: $0) }
-                if fallback {
-                    payload.append(bytes.subdata(in: base..<(base + 4_096)))
-                    continue
-                }
-                var paletteIndex = [UInt8](repeating: 0, count: 256)
-                for (position, value) in palette.enumerated() {
-                    paletteIndex[value] = UInt8(position)
-                }
-                for column in 0..<2_048 {
-                    payload.append(bytes[base + 2 * column])
-                }
-                for column in stride(from: 0, to: 2_048, by: 2) {
-                    let low = paletteIndex[Int(bytes[base + 2 * column + 1])]
-                    let high = paletteIndex[Int(bytes[base + 2 * column + 3])]
-                    payload.append(low | (high << 4))
-                }
-                payload.append(contentsOf: palette.map { UInt8($0) })
-                if palette.count < 16 {
-                    payload.append(contentsOf: repeatElement(UInt8(0), count: 16 - palette.count))
-                }
-            }
-            tensors.append(RouterTensor(name: name, dtype: "U8", shape: [payload.count], data: payload))
-            tensors.append(RouterTensor(
-                name: name + "_row_offsets",
-                dtype: "U32",
-                shape: [256],
-                data: offsets
-            ))
-        }
-
-        var headerObject: [String: Any] = [
-            "__metadata__": ["format": "mlxfast-router-highbyte-v1"]
-        ]
-        var cursor = 0
-        for tensor in tensors {
-            headerObject[tensor.name] = [
-                "dtype": tensor.dtype,
-                "shape": tensor.shape,
-                "data_offsets": [cursor, cursor + tensor.data.count],
-            ]
-            cursor += tensor.data.count
-        }
-        var header = try JSONSerialization.data(withJSONObject: headerObject, options: [.sortedKeys])
-        while !header.count.isMultiple(of: 8) { header.append(0x20) }
-        let destination = destinationDirectory.appendingPathComponent(shardName)
-        try Data().write(to: destination, options: [.withoutOverwriting])
-        let output = try FileHandle(forWritingTo: destination)
-        defer { try? output.close() }
-        var headerLength = UInt64(header.count).littleEndian
-        try output.write(contentsOf: Data(bytes: &headerLength, count: 8))
-        try output.write(contentsOf: header)
-        for tensor in tensors { try output.write(contentsOf: tensor.data) }
-        try output.synchronize()
-        return GeneratedAffineMetadataReport(
-            weightMap: Dictionary(uniqueKeysWithValues: tensors.map { ($0.name, shardName) }),
-            tensorByteCount: cursor
-        )
-    }
-
-    private static func tensorBytes(
-        named name: String,
-        sourceDirectory: URL,
-        index: CheckpointIndex,
-        sourceHeaders: [String: SafetensorsHeader]
-    ) throws -> Data {
-        guard let shard = index.weightMap[name],
-              let header = sourceHeaders[shard],
-              let info = header.tensors[name]
-        else {
-            throw MLXFastError.invalidInput("missing validated tensor metadata for \(name)")
-        }
-        let handle = try FileHandle(forReadingFrom: sourceDirectory.appendingPathComponent(shard))
-        defer { try? handle.close() }
-        try handle.seek(toOffset: header.dataBaseOffset + UInt64(info.dataStart))
-        let bytes = handle.readData(ofLength: info.byteCount)
-        guard bytes.count == info.byteCount else {
-            throw MLXFastError.invalidInput("short read while encoding router \(name)")
-        }
-        return bytes
     }
 
     private static func loadIndex(_ referenceDirectory: URL) throws -> CheckpointIndex {
