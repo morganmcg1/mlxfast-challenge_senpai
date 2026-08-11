@@ -647,55 +647,64 @@ router in tile 0 and the routed experts in tiles 1…256 is *itself* proof that 
 and K3 have no ordering dependence — otherwise the fused arm would produce wrong
 tokens, not merely slow ones.
 
-That is precisely the `dep_scope = NONE` property from §3, and it cuts both
-ways: the sibling-only rule that makes the append *legal* is the same property
-that makes it *worthless* here.
+That is precisely the `dep_scope = NONE` property from §3. What I got wrong for
+most of this assignment was the inference drawn from it — see §10b.1. The
+absence of a barrier bounds what fusion can recover to *dispatch cost alone*;
+it does not make that recovery zero, because R114-E recovers ~89 % of it under
+exactly the same conditions.
 
-**The cost side is charged per host threadgroup.** The fused binary pays a
-small fixed per-threadgroup tax — longer preamble (both bodies' bindings are
-resident), the tile-selection branch, and the `tgid.x − guestTiles` offset
-entering every host address computation, which weakens constant folding. That
-tax multiplies by the host's threadgroup count.
+**The right two-term model.** Per layer:
 
-A simple model fits both R114-E and R119-A:
+> **ΔT_layer = g − D · k**, where `k` is the number of dispatches the append
+> removes per layer, `D` is the per-dispatch recovery, and `g` is the guest's
+> marginal contribution to the host kernel's critical path.
 
-> **ΔT_layer = p · N_host − S**, where `S` is the serialization actually
-> removed and `p` is the per-threadgroup fusion tax.
+`g` is the term the old model was missing. Fitting `k = 1` per instance and
+`D = 1.2382 µs` (Rule 57) on the pass-1 block means:
 
-| arm | host TGs | fused TGs | measured | implied |
-| --- | --- | --- | --- | --- |
-| R114-E (QKV host) | **8** | 12 | −76.8 µs/step = **−1.970 µs/layer** | S ≈ 1.97 µs/layer |
-| R119-A **H** (instance 3, routed SwiGLU host) | **256** | 257 | +7.3 µs/step = **+0.187 µs/layer** | S ≈ 0 ⇒ p ≈ **0.73 ns/TG** |
-| R119-A **F** (instance 2, same host) | **256** | 512 | +10.0 µs/step = **+0.256 µs/layer** | S ≈ 0 ⇒ p ≈ 0.50 ns/TG |
-| R119-A **G** (joint) | **256** | 513 | +13.6 µs/step = **+0.349 µs/layer** | S ≈ 0 ⇒ p ≈ 0.68 ns/TG |
+| arm | guest | k | measured µs/step | µs/layer | implied `g` (µs/layer) | guest standalone µs/call | `g` as % of standalone |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| **R114-E** | gate softplus, 6–8 TGs | 1 | **−44.2** | −1.105 | **0.13** | not measured | — |
+| R119-A **H** | router, 1 TG | 1 | +7.3 | +0.187 | **1.43** | 4.78 | 30 % |
+| R119-A **F** | shared SwiGLU, 256 TGs | 1 | +10.0 | +0.256 | **1.49** | 7.32 | 20 % |
+| R119-A **G** | both | 2 | +13.6 | +0.349 | 2.83 (vs 2.92 additive) | — | — |
 
-The three R119-A arms agree on a per-threadgroup fusion tax of **order 1 ns/TG**.
-I deliberately quote one significant figure. The implied values (0.50, 0.68,
-0.73) look precise but they are ratios of ~10 µs effects to a noise floor whose
-own control excursions reach 73 µs, and the positive control recovers only ~58 %
-of a nominal 76.8 µs effect — a rig that attenuates a known large effect by 40 %
-has not earned two significant figures on a small one. The load-bearing content
-is the *sign and order of magnitude*: the tax is small and positive, and it is
-not what killed the arm.
+Three things fall out of that table.
 
-**It is not the tax. It is `S`.** If the tax were the story, break-even
-against a real R114-E-sized bubble (`S ≈ 1.97 µs/layer`) would be
-`N* = S/p ≈ 2 700` threadgroups, far above any host in this model — every
-append would pay. The arms lose because for a `dep_scope = NONE` sibling under
-a `DispatchTypeConcurrent` encoder, **`S` is genuinely zero**: nothing was
-serialized, so nothing can be recovered, and all that remains is the tax plus
-the guest tile's own load-balance tail.
+1. **The costs are additive within noise.** Under this model `g_F + g_H` should
+   equal `g_G`, and the `D` terms cancel, so the check is instrument-independent:
+   F + H = **+17.3 µs/step** against G's measured **+13.6 µs/step**, and +17.3
+   lies *inside* G's 95 % block interval `[+9.5, +17.7]`. Additivity is not
+   rejected, which supports treating each append's cost as a property of that
+   append rather than an interaction.
+2. **`g` is the discriminator, and it tracks guest size, not barrier
+   structure.** A 6–8-threadgroup guest costs ~0.13 µs/layer on its host; a
+   1-threadgroup-but-4.78 µs guest costs ~1.43; a 256-threadgroup 7.32 µs guest
+   costs ~1.49. In both R119-A cases `g` exceeds the entire dispatch recovery
+   `D`, so the append is under water before anything else happens. Note that the
+   guest *absorbs* substantially — only 20–30 % of its standalone duration shows
+   up on the critical path — which is real evidence that fusion does overlap
+   work. It just does not overlap enough when the guest is this large.
+3. **`D` and `g` are not separately identified by these arms**, which is exactly
+   why arm **R** exists. R performs the identical fused work but keeps the
+   standalone dispatch live, so `R − C` isolates `g` and `R − H` isolates
+   `D · k`. §7.3 reports that decomposition; it is the only measurement here
+   that can put a number on `D` on this machine rather than inheriting Rule 57's.
 
-(I previously fitted `p ≈ 9 ns/TG`, `N* ≈ 230` on interim half-n numbers.
-**That fit is withdrawn**; the full-n data above supersedes it, and it moves
-the conclusion in an honest direction — the mechanism is "no bubble to
-recover", not "prohibitive fusion overhead".)
+**Withdrawn fits.** I previously fitted a per-host-threadgroup fusion tax
+`p ≈ 9 ns/TG` (then `≈ 1 ns/TG`) with `S ≈ 0`, using an R114-E row that listed
+its host as **8 threadgroups**. That row was simply wrong: R114-E's host is
+`rows/2` = **4096–5120** threadgroups and its *guest* is `heads/8` = 6–8
+(§10b.2). Both the `p` fit and the "R114-E won because its host left the cores
+idle" sentence built on it are **withdrawn**. A per-TG tax may well exist, but
+these three arms share one host TG count and therefore cannot measure it; the
+clone ladder (follow-up 2) can.
 
-**Why R114-E won and R119-A lost, in one sentence:** R114-E absorbed a guest
-across a *real* barrier-delimited stage boundary on an 8-threadgroup host that
-left 20 cores nearly idle, whereas R119-A absorbed a *sibling that was already
-running concurrently* into a host that already saturates the machine — so the
-numerator `S` went to zero while the denominator's tax stayed positive.
+**Why R114-E won and R119-A lost, in one sentence:** all three are sibling
+appends with no barrier to recover, so all three can win at most the dispatch
+cost — and R114-E's guest is small enough to leave that recovery almost intact
+(`g ≈ 0.1 µs/layer`) while R119-A's guests each cost more on the host's
+critical path than the dispatch they remove was worth.
 
 **Why the 1.2382 µs/dispatch constant should never have been used as a floor.**
 This is the single most transferable thing in the report, so I want it stated
