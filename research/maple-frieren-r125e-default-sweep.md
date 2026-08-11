@@ -163,6 +163,58 @@ a prior from nezuko R117-C recorded in the doc comment at
 **current** composition; a local `rps=1` loss is expected and is not by itself
 evidence against the M5 case.
 
+## 3. Screen: 32 scored runs, counterbalanced, drift-corrected
+
+One job, 33 runs (run 0 unscored warm-up), `STEPS=224`, `PROFILE=full`, arm
+order `C RP0 RP5 NS0 NS2 C ASOFF ASDEN ASSPA ASLAD C ASNRM OPR1 OPR4 OPSG4 C`
+followed by its exact reverse, so every arm is measured once early and once
+late and each is bracketed by controls. Δ is against the linear interpolation of
+its two neighbouring controls; **n=2 per arm, so no line here is a confirmed
+effect** — the screen is a ranking device only (pre-registered). 0 divergences
+in all 33 runs. Control median drifted 8.158 → 8.318 ms across the job, which is
+exactly why interpolation rather than a pooled control mean is used.
+
+| arm | env level | Δ µs/step | per-pass Δ | % score | read |
+|---|---|---|---|---|---|
+| `OPR1` | `OPROJ_ROWS_PER_SIMDGROUP=1` | **−64.2** | −88.4, −40.0 | +0.376 | closed axis, replication only |
+| `RP0` | `ROUTER_WEIGHT_PREFETCH=0` | **−55.3** | −45.6, −65.0 | +0.324 | leader, both passes negative → confirm |
+| `OPSG4` | `OPROJ_SIMDGROUPS=4` | −40.9 | −74.8, −7.0 | +0.240 | inconsistent, closed axis |
+| `ASSPA` | `DECODE_ASYNC_STAGE=at:0,1,15,31` | −33.0 | −3.4, −62.6 | +0.193 | best async arm → confirm |
+| `ASDEN` | `=at:0,1,3,7,…,39` | −12.0 | +16.4, −40.4 | +0.070 | noise |
+| `C` | shipped defaults | 0 (7 runs) | — | — | reference |
+| `OPR4` | `OPROJ_ROWS_PER_SIMDGROUP=4` | +1.7 | +18.4, −15.0 | −0.010 | noise |
+| `NS2` | `NVFP4_NIBBLE_SPLIT=2` | +25.3 | +18.6, +32.0 | −0.148 | better of the two NS levels → confirm |
+| `RP5` | `ROUTER_WEIGHT_PREFETCH=5` | +25.4 | +37.8, +13.0 | −0.149 | late-placement prefetch is worse |
+| `NS0` | `NVFP4_NIBBLE_SPLIT=0` | +55.6 | +71.2, +40.0 | −0.326 | consistent loser |
+| `ASLAD` | `=ladder8` | +193.0 | +224.8, +161.2 | −1.131 | consistent loser |
+| `ASOFF` | `=off` | +1140.5 | +1162.2, +1118.8 | −6.683 | async staging is load-bearing |
+| `ASNRM` | `=norm` | +1158.9 | +1304.8, +1013.0 | −6.791 | consistent catastrophic loser |
+
+Three results are already decided by the screen alone, because the effects are
+20-40× the per-arm noise and both passes agree:
+
+- **`DECODE_ASYNC_STAGE` off (`ASOFF`, +1.14 ms/step) and `norm`
+  (`ASNRM`, +1.16 ms/step) are catastrophic.** The shipped
+  `at:0,1,7,15,23,31,39` submission-boundary schedule is load-bearing, worth
+  ~14% of decode step time on this host. `ladder8` (+193 µs) also loses clearly.
+  Only the two hand-picked variants near the shipped schedule
+  (`at:0,1,15,31` and the dense list) are in the noise band. There is no cheap
+  win hiding on this axis; the shipped default is at or near a sharp optimum.
+- **`NVFP4_NIBBLE_SPLIT` is at its best shipped value.** Both alternatives are
+  *worse* in both passes (level 0: +71/+40 µs, level 2: +19/+32 µs). This is the
+  advisor's most-wanted number and the screen answer is "the default 1 wins".
+  Confirmed at n=6 below anyway, per the addendum, because the advisor asked for
+  the number rather than the ranking.
+- **`ROUTER_WEIGHT_PREFETCH=5` (late placement) loses**; only level 0
+  (prefetch removed) ranks ahead of the default.
+
+`OPR1` ranks first but the advisor closed that axis in #718/#719 after this job
+was launched; both `OPR` arms and `OPSG4` are reported as free replication and
+were never eligible for a confirm slot. Note `OPR1`'s per-pass spread
+(−88 vs −40 µs) is larger than its mean, and the R117-C prior says `rps=1` is
+*worse* on 20-core M4 — so this local n=2 lead should not be read as evidence
+against the promoted `rps=2`.
+
 ## Which QKV decode kernel actually runs (settles a contradicting review)
 
 A frontier review of this branch concluded that the shipped decode QKV path is
