@@ -125,7 +125,6 @@ run_slot() {
   echo "### ${tag} exit=${rc} $(grep -E '^decode steps' "${OUT}/${tag}.log" || true)"
   rm -f "${OUT}/${tag}.err"
 }
-run_slot warm
 run_slot p1_dflt
 run_slot p2_e256  DARKBLOOM_SHARED_QMV_TG=256
 run_slot p3_e256  DARKBLOOM_SHARED_QMV_TG=256
