@@ -397,6 +397,24 @@ public final class LagunaRuntimeWeightCache {
         } else {
             startupMemoryPolicy = nil
         }
+        if ProcessInfo.processInfo.environment["DARKBLOOM_ENV_READBACK"] == "1" {
+            // Provenance for L-MEASURE-AT-RANKED-STARTUP-PROFILE: the caps are
+            // applied above with overwrite=1, so an exported value can be
+            // silently discarded and only an in-process getenv is truthful.
+            let names = [
+                "MLX_MAX_OPS_PER_BUFFER",
+                "MLX_MAX_MB_PER_BUFFER",
+                "MLX_BFS_MAX_WIDTH",
+            ]
+            let readback = names.map { name in
+                "\(name)=" + (getenv(name).map { String(cString: $0) } ?? "<unset>")
+            }.joined(separator: " ")
+            fputs(
+                "ENV_READBACK: \(readback) "
+                    + "low_memory=\(startupMemoryPolicy?.isLowMemory ?? false)\n",
+                stderr
+            )
+        }
         do {
             libraryModel = try LagunaRuntimeWeightCache.loadLibraryModel(
                 loader: loader,
