@@ -4935,15 +4935,49 @@ private let lagunaDecodeNVFP4QKVR1NarrowKernels: [Int: MLXFast.MLXFastKernel] = 
 
 
 
+/// Output rows accumulated per simdgroup by the decode QKV lane-major kernel.
+///
+/// The shipped geometry is one row per simdgroup, which puts the h64 variant at
+/// 10240 simdgroups (512 per core on a 20-core part) against a grantable
+/// occupancy ceiling of 96. Raising this divides both the simdgroup count and
+/// the number of times the 4 KB activation row is re-read by the same factor.
+/// Only which simdgroup owns which row changes: every row is still accumulated
+/// by one simdgroup's 32 lanes over the same ascending K-blocks and closed by
+/// the same `simd_sum`.
+let lagunaDecodeQKVRowsPerSimdgroup: Int = {
+    guard
+        let raw = ProcessInfo.processInfo.environment[
+            "DARKBLOOM_QKV_ROWS_PER_SIMDGROUP"],
+        let value = Int(raw), [1, 2, 4, 8, 16].contains(value)
+    else { return 1 }
+    return value
+}()
+
+/// Empty at the shipped geometry so the certified pipeline name is unchanged.
+/// MLX caches Metal libraries by kernel name, so a geometry that reuses a name
+/// would be served a stale library.
+private let lagunaDecodeQKVGeometrySuffix =
+    lagunaDecodeQKVRowsPerSimdgroup == 1
+    ? "" : "_qrps\(lagunaDecodeQKVRowsPerSimdgroup)"
+
+/// Threadgroup size is `32 * num_simdgroups` and `num_simdgroups` is fixed at 2,
+/// so every geometry keeps the 64-thread threadgroup that the appended `gate_sp`
+/// tiles assume.
+private let lagunaDecodeQKVTilesDivisor = 2 * lagunaDecodeQKVRowsPerSimdgroup
+
 private func lagunaDecodeNVFP4QKVLaneMajorSource(
     pairwise: Bool, tileOffset: String? = nil
 ) -> String {
     let tileExpr =
         tileOffset.map { "threadgroup_position_in_grid.x - \($0)" }
         ?? "threadgroup_position_in_grid.x"
+    let resultInit = Array(
+        repeating: "0.0f", count: lagunaDecodeQKVRowsPerSimdgroup
+    ).joined(separator: ", ")
     return """
 constexpr uint axis_size = 2048;
 constexpr uint num_simdgroups = 2;
+constexpr uint results_per_simdgroup = \(lagunaDecodeQKVRowsPerSimdgroup);
 constexpr uint values_per_thread = 16;
 constexpr uint block_size = 512;
 constexpr uint in_vec_size_w = axis_size / 2;
@@ -4953,48 +4987,57 @@ constexpr uint blocks_per_row = in_vec_size_g / 32;
 uint tile = \(tileExpr);
 uint simd_gid = simdgroup_index_in_threadgroup;
 uint simd_lid = thread_index_in_simdgroup;
-uint out_row = tile * num_simdgroups + simd_gid;
+uint out_row = tile * (num_simdgroups * results_per_simdgroup) +
+    simd_gid * results_per_simdgroup;
 
 const device uint8_t* ws = (const device uint8_t*)weight_codes +
     out_row * in_vec_size_w + simd_lid * 8;
 
-thread uint8_t sb[blocks_per_row];
-const uint8_t row_base = scale_bases[out_row];
-if (row_base != 0xFFu) {
-    const device ushort* nb = (const device ushort*)(
-        scale_nibbles + out_row * (in_vec_size_g / \(pairwise ? 4 : 2)))
-        + \(pairwise ? "(simd_lid >> 1)" : "simd_lid");
-    const ushort packed = nb[0];
+thread uint8_t sb[results_per_simdgroup][blocks_per_row];
+for (uint r = 0; r < results_per_simdgroup; ++r) {
+    const uint8_t row_base = scale_bases[out_row + r];
+    if (row_base != 0xFFu) {
+        const device ushort* nb = (const device ushort*)(
+            scale_nibbles + (out_row + r) * (in_vec_size_g / \(pairwise ? 4 : 2)))
+            + \(pairwise ? "(simd_lid >> 1)" : "simd_lid");
+        const ushort packed = nb[0];
 #pragma unroll
-    for (uint b = 0; b < blocks_per_row; ++b) {
-        sb[b] = uint8_t(row_base + ((packed >> (b << 2)) & 0x0Fu));
-    }
-} else {
-    const device uint8_t* sc = weight_scales +
-        out_row * in_vec_size_g + simd_lid;
+        for (uint b = 0; b < blocks_per_row; ++b) {
+            sb[r][b] = uint8_t(row_base + ((packed >> (b << 2)) & 0x0Fu));
+        }
+    } else {
+        const device uint8_t* sc = weight_scales +
+            (out_row + r) * in_vec_size_g + simd_lid;
 #pragma unroll
-    for (uint b = 0; b < blocks_per_row; ++b) {
-        sb[b] = sc[b * (block_size / 16)];
+        for (uint b = 0; b < blocks_per_row; ++b) {
+            sb[r][b] = sc[b * (block_size / 16)];
+        }
     }
 }
 
 thread float x_thread[values_per_thread];
-thread float result = 0.0f;
+thread float result[results_per_simdgroup] = {\(resultInit)};
 
 uint column = simd_lid * values_per_thread;
 for (uint k = 0; k < axis_size; k += block_size) {
     for (uint i = 0; i < values_per_thread; ++i) {
         x_thread[i] = float(normalized[column + i]);
     }
-    result += laguna_tail_nvfp4_qdot(
-        ws, x_thread, laguna_tail_nvfp4_scale(sb[k / block_size]));
+    const uint blk = k / block_size;
+    for (uint r = 0; r < results_per_simdgroup; ++r) {
+        result[r] += laguna_tail_nvfp4_qdot(
+            ws + r * in_vec_size_w, x_thread,
+            laguna_tail_nvfp4_scale(sb[r][blk]));
+    }
     ws += block_size / 2;
     column += block_size;
 }
 
-result = simd_sum(result\(lagunaTailNVFP4RowScaleSuffixSource(scaleDefer: lagunaTailNVFP4QKVScaleDeferEnabled)));
-if (simd_lid == 0) {
-    projected[out_row] = bfloat(result);
+for (uint r = 0; r < results_per_simdgroup; ++r) {
+    float row_result = simd_sum(result[r]\(lagunaTailNVFP4RowScaleSuffixSource(scaleDefer: lagunaTailNVFP4QKVScaleDeferEnabled)));
+    if (simd_lid == 0) {
+        projected[out_row + r] = bfloat(row_result);
+    }
 }
 """
 }
@@ -5006,7 +5049,8 @@ private let lagunaDecodeNVFP4QKVLaneMajorKernels: [Int: MLXFast.MLXFastKernel] =
             name: "laguna_decode_nvfp4_qkv_h\(heads)_r1_v1_lm1"
                 + (lagunaAttnScalePairwiseQKVEnabled ? "_pw1" : "")
                 + (lagunaTailNVFP4QKVSeedElisionEnabled ? "_se1" : "")
-                + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : ""),
+                + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : "")
+                + lagunaDecodeQKVGeometrySuffix,
             inputNames: [
                 "normalized", "weight_codes", "scale_nibbles", "scale_bases",
                 "weight_scales",
@@ -5044,13 +5088,17 @@ private func lagunaDecodeNVFP4QKVR1(
         lane.nibbles.dtype == .uint8,
         lane.nibbles.dims(rows, hidden / (lane.pairwise ? 64 : 32)),
         lane.bases.dtype == .uint8, lane.bases.dims(rows),
+        rows % lagunaDecodeQKVTilesDivisor == 0,
         let kernel = lagunaDecodeNVFP4QKVLaneMajorKernels[heads]
     {
-        lagunaTrace("decode nvfp4 qkv r1 h\(heads) lane-major")
+        lagunaTrace(
+            "decode nvfp4 qkv r1 h\(heads) lane-major"
+                + " rps=\(lagunaDecodeQKVRowsPerSimdgroup)"
+                + " tiles=\(rows / lagunaDecodeQKVTilesDivisor)")
         lagunaNarrowScaleLog.noteDispatch("lane-major", "qkv h\(heads)")
         return kernel(
             [normalized, bank.packedCodes, lane.nibbles, lane.bases, bank.scales],
-            grid: ((rows / 2) * 64, 1, 1),
+            grid: ((rows / lagunaDecodeQKVTilesDivisor) * 64, 1, 1),
             threadGroup: (64, 1, 1),
             outputShapes: [[1, 1, rows]],
             outputDTypes: [.bfloat16]
@@ -5116,7 +5164,8 @@ private let lagunaDecodeNVFP4QKVGateKernels: [Int: MLXFast.MLXFastKernel] = {
             name: "laguna_decode_nvfp4_qkv_gate_h\(heads)_r1_v1_lm1"
                 + (lagunaAttnScalePairwiseQKVEnabled ? "_pw1" : "")
                 + (lagunaTailNVFP4QKVSeedElisionEnabled ? "_se1" : "")
-                + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : ""),
+                + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : "")
+                + lagunaDecodeQKVGeometrySuffix,
             inputNames: [
                 "normalized", "weight_codes", "scale_nibbles", "scale_bases",
                 "weight_scales", "gate_codes", "gate_scales", "gate_biases",
@@ -5163,16 +5212,21 @@ private func lagunaDecodeNVFP4QKVGate(
         gateBank.scales.dims(heads, hidden / 32),
         gateBiases.dims(heads, hidden / 32),
         heads % 8 == 0,
+        rows % lagunaDecodeQKVTilesDivisor == 0,
         let kernel = lagunaDecodeNVFP4QKVGateKernels[heads]
     else { return nil }
-    lagunaTrace("decode nvfp4 qkv+gate h\(heads) lane-major")
+    lagunaTrace(
+        "decode nvfp4 qkv+gate h\(heads) lane-major grid append"
+            + " rps=\(lagunaDecodeQKVRowsPerSimdgroup)"
+            + " gate_tiles=\(heads / 8)"
+            + " qkv_tiles=\(rows / lagunaDecodeQKVTilesDivisor)")
     lagunaNarrowScaleLog.noteDispatch("lane-major", "qkv+gate h\(heads)")
     let outputs = kernel(
         [
             normalized, bank.packedCodes, lane.nibbles, lane.bases, bank.scales,
             gateBank.packedCodes, gateBank.scales, gateBiases,
         ],
-        grid: ((heads / 8 + rows / 2) * 64, 1, 1),
+        grid: ((heads / 8 + rows / lagunaDecodeQKVTilesDivisor) * 64, 1, 1),
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, rows], [1, 1, heads]],
         outputDTypes: [.bfloat16, .bfloat16]
