@@ -2,7 +2,13 @@
 
 Author: meridian (Maple research advisor, AI agent)
 Written: 2026-08-11 ~10:45Z, ~6.25 h before close
-Last revised: 2026-08-11 ~15:58Z — **final revision, ~1 h before close. All sixteen fleet arms are
+Last revised: 2026-08-11 ~16:07Z — **§10 added: the closing addendum. It confirms the channel
+stand-down by inspection, hands over the one packet worth a slot
+(`DARKBLOOM_STEEL_PREFILL_TILE=0`), retracts a receipt-to-mechanism attribution of mine as **error
+10** (GATE A has no ranked reading), records the frontier's move to `4ea72c3` — which makes every
+frozen-base *level* in this file stale while leaving dispersion valid — and banks three static
+audits. Rules 21 and 22 are its generalisation. Read §10 before acting on any level in §1–§7.**
+Previously revised: 2026-08-11 ~15:58Z — **All sixteen fleet arms are
 closed (§9). Three further errors of mine (6, 7, 8) are recorded at the end of §0. The last result to
 land, §6.7, prices the *target* rather than the channel and retires the fleet-wide misreading of
 `accepted`; rules 18 and 19 are its generalisation. The operational deliverable for the sibling
@@ -23,7 +29,7 @@ Where I was previously wrong, the correction is stated as a correction rather th
 
 ---
 
-## 0. READ THIS FIRST — eight of my own errors (1–5 below, 6–8 in §0a), and the third one changed the plan
+## 0. READ THIS FIRST — ten of my own errors (1–5 below, 6–8 in §0a, 9 in rule 20, 10 in §10), and the third one changed the plan
 
 **Delta 1 (shared SwiGLU QMV threadgroup 64 → 256, advertised in earlier revisions of this document at
 `+0.38 %` of score, "the same order as the entire remaining gap to the bar") does not exist. It is a
@@ -1367,6 +1373,28 @@ producing a bound that appeared to get **worse** after a clean observation. Rule
     document has been sloppy about it.** An impossible direction of movement is the cheapest bug
     detector available; treat "that improved when it should have worsened" as a stop condition.
 
+21. **A receipt is evidence about the tree that produced it. Before it is evidence about an *arm*,
+    you must show that tree contained the arm** (§10(ii), error 10). I read receipt `7eca997d` as a
+    measurement of the o_proj `rps=2` arm and published a "−43.6 µs/step excluded at 3.5σ" from it.
+    It was a bare HEAD replay: the daemon worktree head was `5bc00161` = `cd047c00` + ten *comment*
+    lines. The arm was never in the binary. This is the receipt-side twin of tanjiro's adopted
+    clause — "…and the edited code must execute on the measuring host" — and the two together are one
+    law: **coverage must be demonstrated at both ends, in the tree and on the host.** The mechanical
+    defence is cheap: record the exact head SHA and the `--numstat` of head-vs-base *with* every
+    receipt, and refuse to price any receipt whose diff you cannot show contains the mechanism. A
+    daemon that dies having fired nothing (r122, r123 today) and a daemon that fires a bare replay
+    are indistinguishable downstream unless you kept that provenance.
+
+22. **A promotion margin is not a causal measurement.** The new frontier `4ea72c3` scored
+    2.6195531094824; a receipt that is *executable-identical to it except for one comment* scored
+    2.6045646758 and was rejected. Same executable, **0.0149885 of raw score apart** — the entire
+    margin, delivered by noise. So "it was promoted, therefore its mechanism is worth the margin" is
+    the winner's-curse error (§6.5b) wearing a new hat. The only way to price a mechanism is a
+    control: for this one, `DARKBLOOM_EXPERT_BOUNDS_SIDECAR=0`. Symmetrically — and this is what
+    makes it a *rule* rather than a caution — **the same evidence class that cannot prove a positive
+    cannot prove a negative**, which is exactly why error 10 above is a retraction of an *exclusion*.
+    One noise process, two directions, one discipline.
+
 ---
 
 ## 9. Final fleet ledger — what each Maple student banked, and where it lives
@@ -1414,5 +1442,120 @@ highest-expected-value use of the remaining fleet-hours stopped being candidate 
 many draws actually remain (#745), and (c) making sure the last one cannot be worth zero for a
 mechanical reason (#746). That reallocation is itself a result, and rule 15 is why it is written down
 here rather than left implicit.
+
+---
+
+## 10. Closing addendum, 16:07Z — stand-down, handover, error 10, and a moved frontier
+
+Written ~53 minutes before close, after §9 was already final. Nothing here changes a fleet result;
+it changes what may be *inherited* from this file.
+
+### (i) The channel is stood down, and I checked the machine rather than my intentions
+
+Maple fires nothing from 10:00Z to close. At **16:03:00Z** I verified there is no mechanism on this
+host that could fire anyway: `ps` shows **no `mlxfast` process of any kind** (matches are OS daemons,
+two tmux servers, and the two Senpai role runners); `crontab -l` → none; `launchctl list` filtered for
+`mlxfast|darkbloom|senpai` → empty; `atq` → empty. The named jobs are gone: fern's poller
+`1298f7a9-e1be-4464-8a58-9bd7f00a3bbe` (stopped 10:38Z), daemon r125 `de57ce0e`, and the r121/r122/r123
+daemons. **No replacement queue watcher exists.**
+
+This matters beyond compliance. The channel is serial, one row in flight (§6.4, #745), so a stray
+watcher on this host would not merely be untidy — it would *consume the slot the campaign is trying to
+use*, and it would do so silently, because a daemon that fires a bare replay looks identical to one
+that fires an arm (rule 21). "I have no intention of firing" and "nothing here can fire" are different
+claims and only the second one is checkable. I checked the second.
+
+Housekeeping: PR #709 (maple-tanjiro, R118-A) surfaced to me at 16:01Z as review-ready with a changed
+base. It was already adjudicated as a terminal negative at **07:24:35Z** and is closed; the signal was
+stale. §9 remains the complete ledger.
+
+### (ii) Error 10 — I attributed a receipt to an arm that was not in the binary
+
+**Retracted:** that receipt `7eca997d` measured the o_proj `rps=2` arm; the 09:25:59Z reading
+**"−43.6 µs/step excluded at 3.5σ"**; and the rps=1 default flip attributed to `f7594fc5`. All three
+come out of the PR #716 acceptance ledger.
+
+**Fact:** `7eca997d` was a **bare HEAD replay**. The r121 daemon worktree head was `5bc00161` =
+`cd047c00` + **ten comment lines** in `DenseTensorStore.swift`. r122 and r123 died having fired
+nothing. Therefore **GATE A has no ranked reading at all** — not a null, not a bound. Anyone carrying
+it as "tested and negative" is inheriting my error. The real o_proj datum will come from the sibling
+campaign's C3 receipt, priced against #718's corrected **−35 µs/step** budget.
+
+Error 10 is the same shape as errors 6 and 7: a number adopted because it was *available* rather than
+because its provenance was established. The difference is the direction of the damage — 6 and 7 made
+the plan look better; **10 made an option look closed.** An error that retires a live arm is more
+expensive than one that flatters a dead one, because nobody audits a closed door. Generalised as rule
+21.
+
+Formally retired at the same time, so no remaining minute is spent on them: **gate_sp as a composition
+ingredient**; **PR #333 / note `7e267f3`** (source-refuted); the **R119 grid-append family**.
+
+### (iii) The one packet Maple hands over
+
+`DARKBLOOM_STEEL_PREFILL_TILE=0` — tile-ladder **arm 5**. Free (env flip, no diff, no editable-budget
+cost against the 287 510 B / 143 files of §1), **bit-identical**, and — the reason it is worth a serial
+slot when almost nothing else is — it lands on the **candidate prefill leg at cv 0.075–0.095 %**, the
+tightest leg either campaign has, against the baseline prefill nuisance leg at cv ≈1.93–2.13 % that
+carries ~83–87 % of published-score variance (§6.7, #709's `L-COMPARE-CANDIDATE-LEGS-NOT-PUBLISHED-SCORES`).
+Price it at exponent **0.25**: a prefill win is quartered on the way to the score.
+
+Interlocks that travel with it: **never fire tile arm 3** (not bit-identical); **never fire arms 1 and
+4 together** (mutually exclusive); base `f7594fc5` (rps=1 + arms 1+2) stays **parked**. Full text in
+`research/MAPLE_TO_SLOT_HOLDER_BRIEF.md` §0e(ii).
+
+### (iv) The frontier moved to `4ea72c3` — every *level* in §1–§7 is now stale
+
+Promoted submission `cdcd0918-0002-45b0-a14b-81f34c40a398` (`cdcd091`), commit
+**`4ea72c3b28873fca23b12b6f33193a2eeb5042f8`**, score **2.6195531094824** — numerically the bar this
+file has tracked since §6.4, so **bar and frontier are now the same object.** Mechanism **N1
+expert-prefix reuse** (257-entry expert-prefix/bounds sidecar, EG256 default, EB0/EB1 JIT identities,
+129-token fallback warmup, 7 editable files). **Do not duplicate N1**; its causal control is
+`DARKBLOOM_EXPERT_BOUNDS_SIDECAR=0`. Its promotion margin is **not** causal proof — see rule 22.
+
+Consequences:
+
+- **Frozen-base results are stale for LEVEL and valid for DISPERSION.** Exactly tanjiro's prefill-archive
+  discipline (§6.6), applied to the whole file. Do not silently re-baseline a §1–§7 number; re-measure it.
+- Integration base moves to fork main after its frontier-sync commit, with a **fresh setup/build/preflight**.
+- **Main has already been advanced to `4ea72c3` and must not be rolled back to `1bc1c895`.** An earlier
+  instruction of mine said main stays frozen at `1bc1c895`; the later direction overrides it, and **no
+  wrapper may declare `1bc1c895` against a different maintained main** — that is precisely the
+  provenance failure #741 was commissioned to catch.
+- **No 4ea72c3-derived advisor BASE_SHA is recorded here.** Maple's advisor branch was deliberately not
+  rebased today: its only remaining job is to carry documents, and rebasing buys nothing while risking
+  the one artifact the campaign still needs. Whoever performs the sync records the exact SHA.
+- **Audit before firing**, because N1 may have invalidated or duplicated them: route sorting;
+  expert-index carriers; pairwise-scale layouts; expert gather geometry; warmup; gather-QMM bounds;
+  lower-bound prologues.
+
+### (v) Four static audits banked at `1a6761bf` (local, read-only, no channel cost)
+
+Local science that survives the base change as *structure* (though not as level):
+
+1. **`DARKBLOOM_L5_UNROLL` is DEAD.** o-proj returns at 6371–6386 via
+   `laguna_oproj_act_h{64,48}_v1_lm1_pw1_sc1_se1`; lines 6435–6452 are unreachable. Any measurement of
+   this flag is a measurement of noise — the coverage failure of rule 21, statically.
+2. **`DARKBLOOM_NORM_AFFINE_QKV_PF` is CONFIRMED DEAD** — a ~470-line dead subsystem; NVFP4 applies from
+   layer 0, so the guard at 5927–5928 always fails. Joins `NORM_AFFINE_QKV_STAGE` on the inert list (§7).
+3. **`DARKBLOOM_NVFP4_NIBBLE_SPLIT` is LIVE and bit-exact** across all three variants, touching
+   **2647.5 µs/step** (1501.4 + 861.2 + 284.9) with no geometry change. Not switchable mid-run:
+   `get_library` caches by name. Consistent with #733's two-sided optimum.
+4. **`DARKBLOOM_EXPERT_DOWN_BN` is real and cheap.** Symbol at `quantized.cpp:1238-1248`, values {32,64},
+   default 64, sole use at `:1396`; `egroups` default 256 at `:1222-1232`. BN 64→32 changes kernel
+   name/template, `grid.x` 32→64, threadgroup memory 9216→4608 B, and is **statically bit-exact for the
+   DOWN shape**; JIT-only, so BN=32 resolves. **One-line diff at `quantized.cpp:1242`**, all touched paths
+   inside `editablePaths`. **Interlock: gate/up BN is a correctness lock** (`c ↔ c+BN/2`,
+   `quantized.cpp:1236-1237`) — do not generalise the flip to gate/up. Under the §6.5c pricing this is a
+   plausible-but-unmeasured occupancy arm, not a landing candidate; it is recorded because a one-line
+   bit-exact diff with a named correctness interlock is the cheapest possible thing to hand forward.
+
+**One correction to our own files:** `research/PREFILL_NAX_ANALYSIS.md` cites **stale line ranges and
+unsourced numbers** — 204.90 / 201.64 / 198.00 µs/token do not appear in `quantized.cpp`, and its
+1.053 acceptance-band advice **contradicts `TASK.md:38-48`**. Treat that document as unsourced until
+re-derived; it is the last unaudited artifact I know of in this tree, and I am flagging it rather than
+fixing it because a rushed fix at 16:07Z would be exactly the unverified-number failure this manifest
+spends ten errors documenting.
+
+---
 
 _Written by meridian, an AI agent acting as the Maple campaign research advisor._

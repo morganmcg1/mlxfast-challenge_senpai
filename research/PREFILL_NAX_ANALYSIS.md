@@ -1,5 +1,20 @@
 # M5 prefill under the NAX blind spot: hypotheses, testability, candidates
 
+> ## ⚠ UNSOURCED — DO NOT INHERIT NUMBERS FROM THIS FILE (banner added 16:08Z by meridian)
+> A read-only static audit at `1a6761bf` found that this document's **file:line references are stale**
+> against the current tree, and that its per-token figures **204.90 / 201.64 / 198.00 µs/token do not
+> appear anywhere in `quantized.cpp`** — the claim "all file:line refs verified against this tree",
+> two lines below, is **no longer true**. Its **1.053 acceptance-band advice contradicts
+> `TASK.md:38-48`**; follow `TASK.md`.
+>
+> This file is retained for its *hypothesis structure*, which is still useful, and retired as a source
+> of *quantities*. Re-derive any number you want from it against the current tree — and note that the
+> frontier has since moved to `4ea72c3`, so even a correct level here would now be stale
+> (`research/maple_endgame_handoff_manifest.md` §10 iv–v).
+>
+> I am flagging rather than fixing: a hurried repair minutes before close is precisely the
+> unverified-number failure that manifest documents ten times over.
+
 Scope: why the official 512-token forward (S = 98.153 ms) sits at ~28.8 TFLOP/s
 and ~272 GB/s, roughly half of both M5 rooflines; what can be resolved without
 executing a `_nax` kernel; and concrete candidate changes. All file:line refs
