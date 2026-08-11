@@ -633,6 +633,64 @@ than out of it, and (iii) L409–411 explicitly says a correctness-green candida
 need not be proven to exceed the whole gap on M4 before one official experiment.
 This is a candidate for one M5 run, not a claim of a ranked win.
 
+### 5.7 Stage 2 — the mechanism ladder, which decides whether F7 should transfer
+
+§5.6's honest counterweight is that I could not tell *which* variable bought the
+79 µs. Three candidate mechanisms all move together when `rows_per_simdgroup`
+goes 4 → 2, and they make different predictions about M5:
+
+1. **simdgroup parallelism / latency hiding** — 512 → 1024 simdgroups. M5 has
+   40 cores against this host's 20, so `rps=2` on M5 lands at 25.6
+   simdgroups/core, one doubling *below* the segment measured here. If this is
+   the operative variable the win should transfer, possibly grow.
+2. **threadgroup count / dispatch placement** — 256 → 512 threadgroups. This is
+   the historical non-transferring failure mode: it depends on how a specific
+   core count divides a specific launch grid.
+3. **bytes** — +314.6 MB/step of extra broadcast reads. Already falsified *by
+   sign* in §5.4 (the arm that reads more bytes is faster), but its magnitude
+   still enters the fit.
+
+So Stage 2 is a four-arm ladder, 6 blocks, 24 runs, one binary, all four arms
+env-gated (no ungated arm, so the env route cancels everywhere), rotating
+within-block order, `--local-submit`. `C4` is the reference and is the
+*historical* geometry — the same compiled pipeline as Stage 1's `G4`.
+
+| arm | gates | rows/sg | sgs/tg | threadgroups | simdgroups | Δbytes/step |
+|---|---|---|---|---|---|---|
+| `C4` (ref) | `…ROWS_PER_SIMDGROUP=4` | 4 | 2 | 256 | 512 | 0 |
+| `R2` | `…ROWS_PER_SIMDGROUP=2` | 2 | 2 | **512** | 1024 | +314.6 MB |
+| `R1` | `…ROWS_PER_SIMDGROUP=1` | 1 | 2 | **1024** | 2048 | +943.7 MB |
+| `N42` | `…ROWS_PER_SIMDGROUP=2,…SIMDGROUPS=4` | 2 | **4** | 256 | 1024 | +314.6 MB |
+
+**`N42` is the discriminator.** It holds simdgroups (1024) and bytes (+314.6 MB)
+identical to the shipped `R2` while restoring the reference's threadgroup count
+(256). Mechanism 1 predicts `N42 ≈ R2`; mechanism 2 predicts `N42 ≈ C4`.
+
+**Out-of-sample predictions, recorded in
+`research/nezuko-r117-oproj-geometry-preregistration.md` §15.3 before the read**,
+from a two-term fit back-solved on Stage 0/1 (benefit `a = −135 µs` per doubling
+of simdgroups; on-chip byte price `τ_on = 0.218 µs/MB`):
+
+| contrast | A: simdgroups+bytes | B: + placement | C: tg-count only |
+|---|---|---|---|
+| `R2 − C4` | −66.4 | −89.4 | −50 |
+| `R1 − C4` | −64.3 | −110.3 | −75 |
+| **`N42 − C4`** | **−66.4** | **−43.4** | **0 … +69** |
+
+**Decision rule, fixed before the read** (§15.4), on `N42 − C4`: `≤ −55 µs` ⇒
+simdgroup parallelism confirmed, transfer case strong; `−55 … −25 µs` ⇒ mixed
+parallelism + placement, transfer case moderate; `≥ −25 µs` ⇒ threadgroup-count
+dominant, which is the historical non-transferring failure mode and I will say so
+plainly. The **ship decision was pre-committed and does not depend on this
+ladder**: the submitted configuration stays `rps=2, ns=2` whatever `R1` and `N42`
+do, with the single exception that if `R2 − C4` fails to replicate an interval
+excluding zero the default reverts to `rps=4` and F7 is reported as a non-result.
+`R1` will not be shipped even if it wins, because Stage 0 put it behind `R2`
+locally and shipping a locally-worse arm on cross-machine extrapolation is
+exactly what the briefing forbids.
+
+<!--STAGE2-RESULT-->
+
 ---
 
 ## 6. F8 — `sliding_fused_attn_ring_v1`: the threadgroup count, printed next to the null
