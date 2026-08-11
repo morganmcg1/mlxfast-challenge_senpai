@@ -1,0 +1,4 @@
+worker up in 41.0s ok=True
+diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.718307495117188 mlx_active_gb=33.02 mlx_cache_gb=0.00 mlx_peak_gb=36.11
+decode_begin seed forward: 553.28 ms
+DECODE_PHASE_START

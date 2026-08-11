@@ -20,6 +20,7 @@ usage: analyze-dose.py <ORDER_DIR> [--warmup N] [--boot N] [--label NAME]
 import argparse
 import csv
 import glob
+import json
 import math
 import os
 import random
@@ -203,11 +204,15 @@ def main():
     for r in runs:
         pooled.setdefault(r["arm"], []).extend(r["steps"][a.warmup:])
     dead = False
+    armstat = {}
     for arm in ARMS:
         v = pooled.get(arm) or []
         if not v:
             continue
         lines, bi = bimodality(v)
+        armstat[arm] = {"n": len(v), "median_ms": st.median(v),
+                        "mean_ms": st.mean(v), "sd_ms": st.pstdev(v),
+                        "bimodal": bool(bi)}
         print(f"arm {arm}: n={len(v)} median={st.median(v):.4f} "
               f"mean={st.mean(v):.4f} sd={st.pstdev(v):.4f} "
               f"bimodal={'YES -- INSTRUMENT FAILURE' if bi else 'no'}")
@@ -215,6 +220,25 @@ def main():
             print(ln)
         print()
         dead = dead or bi
+
+    # ---- unpaired pooled contrast, BOTH estimators, reported whatever it says.
+    # The dose arms change the numerics, which changes MoE top-8 routing, which
+    # adds a right tail the median is immune to and the mean is not.  If the two
+    # estimators disagree in sign that is a fact about this target, not a defect
+    # to be hidden, and the conclusion has to survive both.
+    if "ship" in armstat:
+        print("POOLED SAMPLE CONTRAST vs ship (positive = faster), us/step")
+        print("arm     d(median)   d(mean)   sd_ratio_vs_ship")
+        for arm in ARMS[1:]:
+            if arm not in armstat:
+                continue
+            dm = (armstat["ship"]["median_ms"] - armstat[arm]["median_ms"]) * 1e3
+            da = (armstat["ship"]["mean_ms"] - armstat[arm]["mean_ms"]) * 1e3
+            rr = armstat[arm]["sd_ms"] / max(1e-9, armstat["ship"]["sd_ms"])
+            armstat[arm]["pooled_dmedian_us"] = dm
+            armstat[arm]["pooled_dmean_us"] = da
+            print(f"{arm:<6s} {dm:+9.1f} {da:+9.1f}   {rr:9.2f}x")
+        print()
 
     # ---- paired block contrasts vs ship
     blocks = {}
@@ -278,6 +302,7 @@ def main():
         xb, yb = sum(xs) / 3, sum(ys) / 3
         k = sum((x - xb) * (y - yb) for x, y in zip(xs, ys)) / \
             sum((x - xb) ** 2 for x in xs)
+        k_ls = k
         print(f"  LS slope k = {k:+.4f} us of decode wall per MB/step removed")
         if k > 0:
             print(f"             = {1.0 / k * 1e3:.0f} GB/s marginal "
@@ -309,6 +334,28 @@ def main():
                       "the interval and the")
                 print("     fraction of the 68 us/step excess it would "
                       "actually recover.")
+
+    # ---- machine-readable dump so RESULT.md and the W&B run quote exactly the
+    # numbers printed above, with no hand transcription anywhere in the chain.
+    out = {
+        "label": label, "family": family, "dir": a.dir,
+        "warmup": a.warmup, "boot": a.boot,
+        "runs": len(runs), "raw_samples_total": sum(len(r["steps"]) for r in runs),
+        "raw_samples_measured": n_used,
+        "complete_blocks": len(good),
+        "mb_per_block_step": mb_blk,
+        "arms": armstat,
+        "paired_saving_ms": {arm: {"median": v[0], "mean": v[1],
+                                   "ci_lo": v[2], "ci_hi": v[3]}
+                             for arm, v in results.items()},
+        "k_ls_us_per_mb": locals().get("k_ls"),
+        "bar_us_step": BAR_US_STEP,
+        "csv": csv_path,
+    }
+    jpath = os.path.join(a.dir, f"summary-{label}.json")
+    with open(jpath, "w") as fh:
+        json.dump(out, fh, indent=2, sort_keys=True)
+    print(f"\nmachine-readable summary -> {jpath}")
 
 
 if __name__ == "__main__":
