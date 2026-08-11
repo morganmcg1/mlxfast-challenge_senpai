@@ -100,6 +100,20 @@ def main() -> int:
               f"({d / base * 100:+6.2f}%)  predicted_if_phi1={pred:+7.2f} "
               f"phi={phi:+.3f} [{phi_lo:+.3f}, {phi_hi:+.3f}]")
 
+    # Granularity predicts delta(C)/delta(B) = 23.08/7.69 = 3.0 exactly; a
+    # threadgroup-size step instead predicts a ratio near 1.
+    if 128 in arm_qmv and 256 in arm_qmv:
+        db = arm_qmv[128][0] - base
+        dc = arm_qmv[256][0] - base
+        sb, sc = arm_qmv[128][2], arm_qmv[256][2]
+        s0 = arm_qmv[64][2]
+        ratio = dc / db if db else float("nan")
+        rsem = (abs(ratio) * ((sc**2 + s0**2) / dc**2
+                              + (sb**2 + s0**2) / db**2) ** 0.5
+                if db and dc else float("nan"))
+        print(f"\ndelta(C)/delta(B) = {ratio:+.2f} +- {rsem:.2f}   "
+              f"(3.00 => granularity, ~1.00 => threadgroup-size step)")
+
     # Negative control: every kernel present in all arms and not the arm row.
     common = None
     for tg in arms:
