@@ -164,6 +164,9 @@ let lagunaFusedRoutedSwiGLUQMVEnabled =
 /// code bank stays resident for prefill and fallback paths).
 let lagunaPackedScalesEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_PACKED_SCALES"] != "0"
+let lagunaRoutedScaleHalfSidebankEnabled =
+    ProcessInfo.processInfo.environment[
+        "DARKBLOOM_ROUTED_SCALE_HALF_SIDEBANK"] != "0"
 
 /// Publish exact corrected router ordinals from the existing fused producer
 /// so routed QMV consumers avoid repeating the nonlinear key construction.
@@ -6607,6 +6610,13 @@ let lagunaNvfp4QdotSeedElisionEnabled =
 let lagunaNvfp4ScaleDeferEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_NVFP4_SCALE_DEFER"] != "0"
     && lagunaNvfp4ScaleFoldEnabled
+let lagunaRoutedScaleHalfSidebankActive =
+    lagunaRoutedScaleHalfSidebankEnabled && lagunaNvfp4ScaleDeferEnabled
+
+private func lagunaE4M3ScaleHalfBits(_ scales: MLXArray) -> MLXArray {
+    let bits = scales.asType(.uint16)
+    return contiguous((bits + (bits & MLXArray(UInt16(128)))) * 128)
+}
 
 /// The `2^22` that `laguna_nvfp4_scale` stops applying under
 /// `DARKBLOOM_NVFP4_SCALE_DEFER`, re-applied once per output row at the
@@ -7767,11 +7777,17 @@ private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
 let lagunaRoutedGateUpR1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROUTED_GATEUP_R1"] != "0"
 
-private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
-    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
-    inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
-    outputNames: ["activated"],
-    source: """
+private func lagunaRoutedSwiGLUQMVPackedTop8R1Source(
+    halfScales: Bool
+) -> String {
+    let scaleType = halfScales ? "ushort" : "uint8_t"
+    let gateScale = halfScales
+        ? "float(as_type<half>(cur_gate_sb))"
+        : "laguna_nvfp4_scale(cur_gate_sb)"
+    let upScale = halfScales
+        ? "float(as_type<half>(cur_up_sb))"
+        : "laguna_nvfp4_scale(cur_up_sb)"
+    return """
 constexpr uint input_width = 2048;
 constexpr uint output_width = 512;
 constexpr uint block_width = 512;
@@ -7797,7 +7813,7 @@ uint expert = top8_winner;
 
 const device uint8_t* expert_weight =
     (const device uint8_t*)fused_weight + expert * fused_expert_bytes;
-const device uint8_t* row_scales =
+const device \(scaleType)* row_scales =
     packed_scales + scale_patch_bytes + expert * packed_expert_bytes
     + (logical_row / 4) * scale_tile_bytes;
 uint sub = logical_row % 4;
@@ -7810,10 +7826,10 @@ thread float input_values[values_per_lane];
 
 uint2 gate_codes;
 uint2 up_codes;
-uint8_t gate_sb;
-uint8_t up_sb;
+\(scaleType) gate_sb;
+\(scaleType) up_sb;
 {
-    const device uint8_t* first_scales =
+    const device \(scaleType)* first_scales =
         row_scales + sub * 2 * scale_row_bytes + (lane >> 1);
     bool patch_lane = expert == 0 && logical_row == 0 && lane == 1;
     gate_sb = patch_lane ? packed_scales[0] : first_scales[0];
@@ -7838,11 +7854,11 @@ for (uint block = 0; block < input_width; block += block_width) {
 
     const uint2 cur_gate_codes = gate_codes;
     const uint2 cur_up_codes = up_codes;
-    const uint8_t cur_gate_sb = gate_sb;
-    const uint8_t cur_up_sb = up_sb;
+    const \(scaleType) cur_gate_sb = gate_sb;
+    const \(scaleType) cur_up_sb = up_sb;
     const uint next_block = block + block_width;
     if (next_block < input_width) {
-        const device uint8_t* next_scales =
+        const device \(scaleType)* next_scales =
             row_scales + (next_block / block_width) * scale_kblock_bytes
             + sub * 2 * scale_row_bytes + (lane >> 1);
         gate_sb = next_scales[0];
@@ -7856,11 +7872,9 @@ for (uint block = 0; block < input_width; block += block_width) {
     }
 
     gate_result += laguna_nvfp4_qdot_codes_16(
-        cur_gate_codes, input_values,
-        laguna_nvfp4_scale(cur_gate_sb));
+        cur_gate_codes, input_values, \(gateScale));
     up_result += laguna_nvfp4_qdot_codes_16(
-        cur_up_codes, input_values,
-        laguna_nvfp4_scale(cur_up_sb));
+        cur_up_codes, input_values, \(upScale));
 }
 
 gate_result = simd_sum(gate_result);
@@ -7876,7 +7890,24 @@ if (lane == 0) {
     activated[expert_slot * output_width + logical_row] =
         bfloat(silu * up);
 }
-""",
+"""
+}
+
+private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
+    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
+    inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
+    outputNames: ["activated"],
+    source: lagunaRoutedSwiGLUQMVPackedTop8R1Source(halfScales: false),
+    header: lagunaSharedSwiGLUQMVHeader + "\n" + lagunaDecodeRouterOrdinalHeader
+        + "\n" + lagunaRouterTop8PrologueHeader,
+    ensureRowContiguous: true
+)
+
+private let lagunaRoutedSwiGLUQMVPackedTop8R1HalfScaleKernel = MLXFast.metalKernel(
+    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_halfscale_bf16_v1",
+    inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
+    outputNames: ["activated"],
+    source: lagunaRoutedSwiGLUQMVPackedTop8R1Source(halfScales: true),
     header: lagunaSharedSwiGLUQMVHeader + "\n" + lagunaDecodeRouterOrdinalHeader
         + "\n" + lagunaRouterTop8PrologueHeader,
     ensureRowContiguous: true
@@ -7886,6 +7917,7 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
     _ input: MLXArray,
     fusedWeight: MLXArray,
     packedScales: MLXArray,
+    scaleHalves: MLXArray? = nil,
     routerKeys: MLXArray
 ) -> MLXArray {
     precondition(input.dtype == .bfloat16)
@@ -7893,9 +7925,23 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
     precondition(fusedWeight.dtype == .uint32)
     precondition(packedScales.dtype == .uint8)
     precondition(packedScales.size == lagunaPackedRoutedGateUpScaleBytes)
+    precondition(scaleHalves == nil || scaleHalves!.dtype == .uint16)
+    precondition(scaleHalves == nil || scaleHalves!.size == packedScales.size)
     precondition(routerKeys.dtype == .uint32)
     precondition(routerKeys.size == LagunaConstants.numExperts)
 
+    if lagunaRoutedGateUpR1Enabled, let scaleHalves {
+        return lagunaRoutedSwiGLUQMVPackedTop8R1HalfScaleKernel(
+            [input, fusedWeight, scaleHalves, routerKeys],
+            grid: (LagunaConstants.numExpertsPerTok * 256 * 64, 1, 1),
+            threadGroup: (64, 1, 1),
+            outputShapes: [[
+                1, 1, LagunaConstants.numExpertsPerTok, 1,
+                LagunaConstants.moeIntermediateSize,
+            ]],
+            outputDTypes: [.bfloat16]
+        )[0]
+    }
     if lagunaRoutedGateUpR1Enabled {
         return lagunaRoutedSwiGLUQMVPackedTop8R1Kernel(
             [input, fusedWeight, packedScales, routerKeys],
@@ -8130,8 +8176,9 @@ private let lagunaRoutedSharedDownResidualSharedHalvedKernel =
     )
 
 private func lagunaRoutedSharedDownResidualSource(
-    sharedHalved: Bool, staged: Bool = false
+    sharedHalved: Bool, staged: Bool = false, routedHalfScales: Bool = false
 ) -> String {
+    precondition(!routedHalfScales || (sharedHalved && staged))
     let sharedRowBytes = sharedHalved ? 16 : 32
     let sharedBase =
         sharedHalved ? "shared_down_scales + scale_patch_bytes" : "shared_down_scales"
@@ -8142,12 +8189,51 @@ private func lagunaRoutedSharedDownResidualSource(
             + "        ? (is_shared ? shared_down_scales[0] : routed_down_scales[0])"
         : "(!is_shared && expert == 0 && output_row == 0 && lane == 1)\n"
             + "        ? routed_down_scales[0]"
-    // Same accumulation, scale conversion, reduction, and epilogue order in
-    // both bodies; `staged` only hoists the four code words and scale bytes
-    // ahead of the qdots (the promoted stage4 schedule).
-    let qdots =
-        staged
-        ? """
+    let scaleSetup = routedHalfScales
+        ? ""
+        : """
+        const device uint8_t* expert_scales = is_shared
+            ? \(sharedBase)
+            : routed_down_scales + scale_patch_bytes
+                + expert * scale_expert_bytes;
+        uint scale_row_bytes =
+            is_shared ? shared_scale_row_bytes : routed_scale_row_bytes;
+        uint scale_lane = \(scaleLane);
+        """
+    let qdots: String
+    if routedHalfScales {
+        qdots = """
+        thread float result[outputs_per_simd] = {0.0f};
+        uint2 row_codes[outputs_per_simd];
+        float row_scale[outputs_per_simd];
+        for (uint row = 0; row < outputs_per_simd; ++row) {
+            uint output_row = first_row + row;
+            row_codes[row] = *(const device uint2*)(
+                expert_weight + output_row * packed_row_bytes + lane * 8);
+            if (is_shared) {
+                const device uint8_t* scale = shared_down_scales
+                    + scale_patch_bytes
+                    + output_row * shared_scale_row_bytes + (lane >> 1);
+                uint8_t sb = output_row == 0 && lane == 1
+                    ? shared_down_scales[0] : scale[0];
+                row_scale[row] = laguna_nvfp4_scale(sb);
+            } else {
+                const device ushort* scale = routed_down_scales
+                    + scale_patch_bytes + expert * scale_expert_bytes
+                    + output_row * routed_scale_row_bytes + (lane >> 1);
+                ushort sb = expert == 0 && output_row == 0 && lane == 1
+                    ? routed_down_scales[0] : scale[0];
+                row_scale[row] = float(as_type<half>(sb));
+            }
+        }
+        for (uint row = 0; row < outputs_per_simd; ++row) {
+            result[row] = laguna_nvfp4_qdot_codes_16(
+                row_codes[row], input_values, row_scale[row]);
+            result[row] = simd_sum(result[row]);
+        }
+        """
+    } else if staged {
+        qdots = """
         thread float result[outputs_per_simd] = {0.0f};
         uint2 row_codes[outputs_per_simd];
         uint8_t row_sb[outputs_per_simd];
@@ -8169,7 +8255,8 @@ private func lagunaRoutedSharedDownResidualSource(
             result[row] = simd_sum(result[row]);
         }
         """
-        : """
+    } else {
+        qdots = """
         thread float result[outputs_per_simd] = {0.0f};
         for (uint row = 0; row < outputs_per_simd; ++row) {
             uint output_row = first_row + row;
@@ -8187,6 +8274,7 @@ private func lagunaRoutedSharedDownResidualSource(
             result[row] = simd_sum(result[row]);
         }
         """
+    }
     return """
 constexpr uint input_width = 512;
 constexpr uint output_width = 2048;
@@ -8217,13 +8305,7 @@ const device uint8_t* expert_weight = is_shared
     ? (const device uint8_t*)shared_down_weight
     : (const device uint8_t*)routed_down_weight +
         expert * packed_expert_bytes;
-const device uint8_t* expert_scales = is_shared
-    ? \(sharedBase)
-    : routed_down_scales + scale_patch_bytes
-        + expert * scale_expert_bytes;
-uint scale_row_bytes =
-    is_shared ? shared_scale_row_bytes : routed_scale_row_bytes;
-uint scale_lane = \(scaleLane);
+\(scaleSetup)
 
 thread float input_values[values_per_lane];
 const device vec<bfloat, 4>* input_vectors =
@@ -8430,6 +8512,30 @@ private let lagunaRoutedSharedDownResidualStagedSharedHalvedKernel =
         ensureRowContiguous: true
     )
 
+private let lagunaRoutedSharedDownResidualStagedSharedHalvedHalfScaleKernel =
+    MLXFast.metalKernel(
+        name: lagunaSharedFirstDownOrderEnabled
+            ? "laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_halfscale_v1sf"
+            : "laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_halfscale_v1",
+        inputNames: lagunaSharedFirstDownOrderEnabled
+            ? [
+                "shared_activated", "shared_down_weight", "shared_down_scales",
+                "routed_activated", "routed_down_weight", "routed_down_scales",
+                "indices", "router_weights", "residual",
+            ]
+            : [
+                "routed_activated", "routed_down_weight", "routed_down_scales",
+                "indices", "router_weights", "shared_activated",
+                "shared_down_weight", "shared_down_scales", "residual",
+            ],
+        outputNames: ["output"],
+        source: lagunaRoutedSharedDownResidualSource(
+            sharedHalved: true, staged: true, routedHalfScales: true),
+        header: lagunaSharedSwiGLUQMVHeader,
+        ensureRowContiguous: true
+    )
+
+
 func lagunaRoutedSharedDownResidual(
     routedActivated: MLXArray,
     routedDownWeight: MLXArray,
@@ -8450,7 +8556,8 @@ func lagunaRoutedSharedDownResidual(
     precondition(
         routedDownWeight.dims(LagunaConstants.numExperts, LagunaConstants.hiddenSize,
             LagunaConstants.moeIntermediateSize / 8))
-    precondition(routedDownScales.dtype == .uint8)
+    let routedHalfScales = routedDownScales.dtype == .uint16
+    precondition(routedHalfScales || routedDownScales.dtype == .uint8)
     precondition(routedDownScales.size == lagunaRoutedDownScaleBytes)
     precondition(indices.dtype == .uint32)
     precondition(indices.dims(1, 1, LagunaConstants.numExpertsPerTok))
@@ -8477,15 +8584,18 @@ func lagunaRoutedSharedDownResidual(
     }
     precondition(residual.dtype == .bfloat16)
     precondition(residual.dims(1, 1, LagunaConstants.hiddenSize))
+    precondition(!routedHalfScales || sharedHalved && staged)
 
     let fusedKernel =
-        sharedHalved
-        ? (staged
-            ? lagunaRoutedSharedDownResidualStagedSharedHalvedKernel
-            : lagunaRoutedSharedDownResidualSharedHalvedKernel)
-        : (staged
-            ? lagunaRoutedSharedDownResidualStagedKernel
-            : lagunaRoutedSharedDownResidualKernel)
+        routedHalfScales
+        ? lagunaRoutedSharedDownResidualStagedSharedHalvedHalfScaleKernel
+        : sharedHalved
+            ? (staged
+                ? lagunaRoutedSharedDownResidualStagedSharedHalvedKernel
+                : lagunaRoutedSharedDownResidualSharedHalvedKernel)
+            : (staged
+                ? lagunaRoutedSharedDownResidualStagedKernel
+                : lagunaRoutedSharedDownResidualKernel)
     return fusedKernel(
         lagunaSharedFirstDownOrderEnabled
             ? [
@@ -10502,6 +10612,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
     /// the halved plane would not be bitwise lossless, in which case the
     /// down projection falls back to the stock module.
     var _routedDownScales: MLXArray?
+    var _routedDownScaleHalves: MLXArray?
     /// Shape-preserving marker view over `_routedDownScales` for the M5
     /// expert-aligned prefill down projection. It owns no storage.
     var _routedDownPairwiseScales: MLXArray?
@@ -10512,6 +10623,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
     /// the halved plane would not be bit-exact, in which case the routed QMV
     /// path reads the full fused scales instead.
     var _packedRoutedGateUpBank: MLXArray?
+    var _packedRoutedGateUpScaleHalves: MLXArray?
 
     /// Builds and retains the fused routed gate/up NVFP4 banks from the
     /// loaded stock `SwitchGLU` submodules (reached through the public
@@ -10604,6 +10716,11 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
         {
             _routedDownScales = halvedDown
             prepared.append(halvedDown)
+            if lagunaRoutedScaleHalfSidebankActive {
+                let scaleHalves = lagunaE4M3ScaleHalfBits(halvedDown)
+                _routedDownScaleHalves = scaleHalves
+                prepared.append(scaleHalves)
+            }
             if lagunaPrefillExpertDownPairwiseScalesEnabled,
                 lagunaExpertAlignedGatherEnabled,
                 let pairwiseDown = lagunaPackedPrefillDownScaleView(halvedDown)
@@ -10617,6 +10734,13 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 fusedScales: fusedScales,
                 experts: experts,
                 split: split))
+        if lagunaRoutedScaleHalfSidebankActive,
+            let packedScales = _packedRoutedGateUpBank
+        {
+            let scaleHalves = lagunaE4M3ScaleHalfBits(packedScales)
+            _packedRoutedGateUpScaleHalves = scaleHalves
+            prepared.append(scaleHalves)
+        }
         if lagunaPrefillExpertPairwiseScalesEnabled,
             lagunaExpertAlignedGatherEnabled,
             let packedScales = _packedRoutedGateUpBank,
@@ -10712,6 +10836,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                             x,
                             fusedWeight: fusedWeight,
                             packedScales: packedBank,
+                            scaleHalves: _packedRoutedGateUpScaleHalves,
                             routerKeys: routerKeys
                         )
                     } else {
@@ -10754,10 +10879,14 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 activated = lagunaInterleavedSwiGLU(
                     gateUp, split: _fusedRoutedGateUpSplit)
             }
+            let fusedDownScales = lagunaRoutedScaleHalfSidebankActive
+                && lagunaSharedScaleHalvedEnabled
+                && lagunaFusedDownRowStagingEnabled
+                ? _routedDownScaleHalves : _routedDownScales
             if lagunaFusedRoutedSharedDownResidualEnabled,
                 let residual,
                 let downWeight = _routedDownWeight,
-                let downScales = _routedDownScales,
+                let downScales = fusedDownScales,
                 let sharedInputs = sharedExpert.fusedSharedDownInputs(
                     x, sharedActivation: mergedSharedActivated),
                 activated.dtype == .bfloat16,
@@ -10766,7 +10895,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 downWeight.dtype == .uint32,
                 downWeight.dims(LagunaConstants.numExperts, LagunaConstants.hiddenSize,
                     LagunaConstants.moeIntermediateSize / 8),
-                downScales.dtype == .uint8,
+                downScales.dtype == .uint8 || downScales.dtype == .uint16,
                 downScales.size == lagunaRoutedDownScaleBytes,
                 weights.dtype == .float32,
                 weights.dims(1, 1, LagunaConstants.numExpertsPerTok),
