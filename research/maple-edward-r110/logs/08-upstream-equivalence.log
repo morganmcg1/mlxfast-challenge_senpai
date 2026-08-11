@@ -1,0 +1,1543 @@
+[0/8] Write sources
+[2/8] Write encuda-tool-entitlement.plist
+[2/8] Write sources
+[4/8] Write swift-version--58304C5D6DBC2206.txt
+[6/10] Compiling ArgumentParserToolInfo ToolInfo.swift
+[7/10] Emitting module ArgumentParserToolInfo
+[8/60] Compiling ArgumentParser AsyncCompletionsValidator.swift
+[9/60] Compiling ArgumentParser CodingKeyValidator.swift
+[10/60] Compiling ArgumentParser NonsenseFlagsValidator.swift
+[11/63] Compiling ArgumentParser Argument.swift
+[12/63] Compiling ArgumentParser ArgumentDiscussion.swift
+[13/63] Compiling ArgumentParser ArgumentHelp.swift
+[14/63] Compiling ArgumentParser ArgumentVisibility.swift
+[15/63] Emitting module ArgumentParser
+[16/63] Compiling ArgumentParser StringExtensions.swift
+[17/63] Compiling ArgumentParser SwiftExtensions.swift
+[18/63] Compiling ArgumentParser Tree.swift
+[19/63] Compiling ArgumentParser CommandConfiguration.swift
+[20/63] Compiling ArgumentParser CommandGroup.swift
+[21/63] Compiling ArgumentParser EnumerableFlag.swift
+[22/63] Compiling ArgumentParser ExpressibleByArgument.swift
+[23/63] Compiling ArgumentParser ParsableArgumentsValidation.swift
+[24/63] Compiling ArgumentParser PositionalArgumentsValidator.swift
+[25/63] Compiling ArgumentParser UniqueNamesValidator.swift
+[26/63] Compiling ArgumentParser Name.swift
+[27/63] Compiling ArgumentParser Parsed.swift
+[28/63] Compiling ArgumentParser ParsedValues.swift
+[29/63] Compiling ArgumentParser ParserError.swift
+[30/63] Compiling ArgumentParser Option.swift
+[31/63] Compiling ArgumentParser OptionGroup.swift
+[32/63] Compiling ArgumentParser ParentCommand.swift
+[33/63] Compiling ArgumentParser AsyncParsableCommand.swift
+[34/63] Compiling ArgumentParser CompletionKind.swift
+[35/63] Compiling ArgumentParser Errors.swift
+[36/63] Compiling ArgumentParser Flag.swift
+[37/63] Compiling ArgumentParser NameSpecification.swift
+[38/63] Compiling ArgumentParser ArgumentSet.swift
+[39/63] Compiling ArgumentParser CommandParser.swift
+[40/63] Compiling ArgumentParser InputKey.swift
+[41/63] Compiling ArgumentParser InputOrigin.swift
+[42/63] Compiling ArgumentParser SplitArguments.swift
+[43/63] Compiling ArgumentParser DumpHelpGenerator.swift
+[44/63] Compiling ArgumentParser HelpCommand.swift
+[45/63] Compiling ArgumentParser HelpGenerator.swift
+[46/63] Compiling ArgumentParser Mutex.swift
+[47/63] Compiling ArgumentParser Platform.swift
+[48/63] Compiling ArgumentParser SequenceExtensions.swift
+[49/63] Compiling ArgumentParser BashCompletionsGenerator.swift
+[50/63] Compiling ArgumentParser CompletionsGenerator.swift
+[51/63] Compiling ArgumentParser FishCompletionsGenerator.swift
+[52/63] Compiling ArgumentParser ZshCompletionsGenerator.swift
+[53/63] Compiling ArgumentParser ParsableArguments.swift
+[54/63] Compiling ArgumentParser ParsableCommand.swift
+[55/63] Compiling ArgumentParser ArgumentDecoder.swift
+[56/63] Compiling ArgumentParser ArgumentDefinition.swift
+[57/63] Compiling ArgumentParser MessageInfo.swift
+[58/63] Compiling ArgumentParser UsageGenerator.swift
+[59/63] Compiling ArgumentParser CollectionExtensions.swift
+[60/63] Compiling ArgumentParser Foundation.swift
+[61/69] Compiling encuda encuda.swift
+[62/69] Compiling encuda encuda-error.swift
+[63/69] Compiling encuda encuda-utils.swift
+[64/69] Compiling encuda encuda-compile.swift
+[65/69] Emitting module encuda
+[66/69] Compiling encuda encuda-link.swift
+[66/69] Write Objects.LinkFileList
+[67/69] Linking encuda-tool
+[68/69] Applying encuda-tool
+[1/1] Compiling plugin CudaBuild
+[2/2] Compiling plugin GenerateManual
+[3/3] Compiling plugin GenerateDoccReference
+Building for debugging...
+[3/252] /Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/.build/arm64-apple-macosx/debug/mlxfast-challenge-devPackageTests.derived/runner.swift
+[4/252] Copying PrivacyInfo.xcprivacy
+[5/252] Copying t5_tokenizer_config.json
+[5/252] Copying gpt2_tokenizer_config.json
+[7/252] Write sources
+[16/252] Copying pagedattention.metal
+[17/252] Write sources
+[21/252] Write mlxfast-swift-entitlement.plist
+[21/252] Write mlxfast-runtime-worker-entitlement.plist
+[23/252] Write sources
+[43/252] Write swift-version--58304C5D6DBC2206.txt
+[44/252] Compiling _NumericsShims _NumericsShims.c
+[45/252] Compiling version.cpp
+[46/258] Compiling _AtomicsShims.c
+[48/270] Compiling RealModule RelaxedArithmetic.swift
+[49/270] Emitting module _NIODataStructures
+[50/270] Compiling _NIODataStructures Heap.swift
+[51/270] Compiling _NIODataStructures _TinyArray.swift
+[52/270] Compiling _NIODataStructures PriorityQueue.swift
+[53/270] Compiling RealModule RealFunctions.swift
+[54/270] Compiling RealModule Float80+Real.swift
+[55/270] Compiling RealModule Real.swift
+[56/282] Compiling RealModule Float16+Real.swift
+[57/283] Emitting module RealModule
+[58/283] Compiling RealModule ElementaryFunctions.swift
+[59/283] Compiling RealModule Double+Real.swift
+[60/283] Compiling RealModule ApproximateEquality.swift
+[61/283] Compiling RealModule AlgebraicField.swift
+[62/283] Compiling RealModule AugmentedArithmetic.swift
+[63/283] Compiling RealModule Float+Real.swift
+[64/283] Compiling _NIOBase64 Base64.swift
+[65/283] Emitting module _NIOBase64
+[66/302] Compiling InternalCollectionsUtilities _SortedCollection.swift
+[67/303] Compiling InternalCollectionsUtilities _UniqueCollection.swift
+[68/303] Compiling MLXFastCore PathValidation.swift
+[69/393] Compiling InternalCollectionsUtilities UnsafeRawBufferPointer+Extras.swift
+[70/393] Compiling InternalCollectionsUtilities UnsafeMutableRawBufferPointer+Extras.swift
+[71/393] Compiling InternalCollectionsUtilities UnsafeBufferPointer+Extras.swift
+[72/393] Compiling InternalCollectionsUtilities UnsafeMutableBufferPointer+Extras.swift
+[73/393] Compiling MLXFastCore TensorData.swift
+[74/393] Compiling InternalCollectionsUtilities _UnsafeBitSet+Index.swift
+[75/393] Compiling InternalCollectionsUtilities _UnsafeBitSet+_Word.swift
+[76/393] Compiling Crypto AES-GCM_boring.swift
+[77/393] Compiling Crypto ChaChaPoly_boring.swift
+[78/393] Compiling Crypto Digests.swift
+[79/393] Compiling Crypto AES-GCM.swift
+[80/393] Compiling Crypto Digest_boring.swift
+[81/393] Compiling Crypto Digest.swift
+[82/393] Compiling Crypto SEC1PrivateKey.swift
+[83/393] Compiling Crypto SubjectPublicKeyInfo.swift
+[84/393] Compiling InternalCollectionsUtilities _UnsafeBitSet.swift
+[85/393] Compiling Crypto HPKE-Errors.swift
+[86/393] Compiling Crypto HPKE.swift
+[87/393] Compiling Crypto HPKE-Context.swift
+[88/393] Compiling Crypto HPKE-KeySchedule.swift
+[89/393] Compiling Crypto HPKE-Modes.swift
+[90/393] Compiling Crypto Insecure.swift
+[91/393] Compiling Crypto Insecure_HashFunctions.swift
+[92/393] Compiling Crypto EdDSA_boring.swift
+[93/393] Compiling Crypto MLDSA_boring.swift
+[94/393] Compiling Crypto MLDSA_wrapper.swift
+[95/393] Compiling Crypto ECDSA.swift
+[96/393] Compiling Crypto Ed25519.swift
+[97/393] Compiling Crypto MLDSA.swift
+[100/399] Compiling Crypto CryptoError_boring.swift
+[101/399] Compiling Crypto CryptoKitErrors.swift
+[105/399] Emitting module Crypto
+[106/399] Compiling Crypto SymmetricKeys.swift
+[107/399] Compiling Crypto HMAC.swift
+[108/399] Compiling Crypto MACFunctions.swift
+[109/399] Compiling Crypto MessageAuthenticationCode.swift
+[110/399] Compiling Crypto AES.swift
+[111/399] Compiling Crypto ECDSASignature_boring.swift
+[112/399] Compiling Crypto ECDSA_boring.swift
+[113/399] Compiling Crypto Ed25519_boring.swift
+[114/399] Compiling Crypto NISTCurvesKeys_boring.swift
+[115/399] Compiling Crypto X25519Keys_boring.swift
+[116/399] Compiling Crypto Curve25519.swift
+[117/399] Compiling Crypto Ed25519Keys.swift
+[118/399] Compiling Crypto NISTCurvesKeys.swift
+[119/399] Compiling Crypto X25519Keys.swift
+[120/399] Compiling Crypto MLKEM_boring.swift
+[121/399] Compiling Crypto MLKEM_wrapper.swift
+[122/399] Compiling Crypto XWing_boring.swift
+[123/399] Compiling Crypto KEM-Errors.swift
+[124/399] Compiling Crypto KEM.swift
+[125/399] Compiling Crypto MLKEM.swift
+[126/399] Compiling Crypto XWing.swift
+[127/399] Compiling Crypto ECDH_boring.swift
+[128/399] Compiling Crypto DH.swift
+[129/399] Compiling Crypto ECDH.swift
+[130/399] Compiling Crypto ANSIx963.swift
+[131/399] Compiling Crypto HKDF.swift
+[132/399] Compiling Crypto AESWrap.swift
+[133/399] Compiling Crypto AESWrap_boring.swift
+[134/399] Emitting module InternalCollectionsUtilities
+[140/399] Compiling Crypto ChaChaPoly.swift
+[141/399] Compiling Crypto Cipher.swift
+[142/399] Compiling Crypto Nonces.swift
+[143/399] Compiling Crypto ASN1.swift
+[144/399] Compiling Crypto Signature.swift
+[145/399] Compiling Crypto CryptoKitErrors_boring.swift
+[146/399] Compiling Crypto Optional+withUnsafeBytes_boring.swift
+[147/399] Compiling Crypto RNG_boring.swift
+[148/399] Compiling Crypto SafeCompare_boring.swift
+[149/399] Compiling Crypto Zeroization_boring.swift
+[150/399] Compiling Crypto HPKE-KexKeyDerivation.swift
+[151/399] Compiling Crypto HPKE-LabeledExtract.swift
+[152/399] Compiling Crypto HPKE-Utils.swift
+[153/399] Compiling Crypto DHKEM.swift
+[154/399] Compiling Crypto HPKE-KEM-Curve25519.swift
+[155/399] Compiling Crypto HPKE-NIST-EC-KEMs.swift
+[156/399] Compiling Crypto HPKE-KEM.swift
+[157/399] Compiling Crypto ASN1Any.swift
+[158/399] Compiling Crypto ASN1BitString.swift
+[159/399] Compiling Crypto ASN1Boolean.swift
+[160/399] Compiling Crypto ASN1Identifier.swift
+[161/399] Compiling Crypto ASN1Integer.swift
+[162/399] Compiling Crypto ASN1Null.swift
+[163/399] Compiling Crypto ASN1OctetString.swift
+[164/399] Compiling Crypto ASN1Strings.swift
+[165/399] Compiling Crypto ArraySliceBigint.swift
+[166/399] Compiling Crypto GeneralizedTime.swift
+[167/399] Compiling Crypto ObjectIdentifier.swift
+[168/399] Compiling Crypto ECDSASignature.swift
+[169/399] Compiling Crypto PEMDocument.swift
+[170/399] Compiling Crypto PKCS8PrivateKey.swift
+[171/399] Compiling Crypto HashFunctions.swift
+[172/399] Compiling Crypto HashFunctions_SHA2.swift
+[173/399] Compiling Crypto HashFunctions_SHA3.swift
+[174/399] Compiling Crypto Digest_xkcp.swift
+[175/399] Compiling Crypto HPKE-AEAD.swift
+[176/399] Compiling Crypto HPKE-Ciphersuite.swift
+[177/399] Compiling Crypto HPKE-KDF.swift
+[178/411] Compiling ComplexModule Polar.swift
+[179/411] Compiling ComplexModule Scale.swift
+[180/411] Compiling ComplexModule Complex+Hashable.swift
+[181/411] Compiling ComplexModule Complex+IntegerLiteral.swift
+[182/411] Compiling ComplexModule Complex+StringConvertible.swift
+[183/411] Compiling ComplexModule Complex+AlgebraicField.swift
+[184/411] Compiling ComplexModule Complex+Codable.swift
+[185/411] Compiling ComplexModule Complex.swift
+[186/411] Emitting module ComplexModule
+[187/411] Compiling ComplexModule Complex+AdditiveArithmetic.swift
+[188/411] Compiling ComplexModule Complex+Numeric.swift
+[189/411] Compiling ComplexModule Complex+ElementaryFunctions.swift
+[190/411] Compiling MLXFastCore Score.swift
+[191/411] Compiling Crypto _CryptoModuleAnchor.swift
+[192/411] Compiling Crypto PrettyBytes.swift
+[193/411] Compiling Crypto SafeCompare.swift
+[194/411] Compiling Crypto SecureBytes.swift
+[195/411] Compiling Crypto Zeroization.swift
+[196/411] Compiling Crypto resource_bundle_accessor.swift
+[197/411] Compiling MLXFastCore NGramSelfSimilarity.swift
+[198/411] Compiling MLXFastCore Safetensors.swift
+[198/417] Compiling utils.cpp
+[199/421] Compiling scheduler.cpp
+[200/424] Compiling no_gguf.cpp
+[202/473] Compiling Numerics Numerics.swift
+[203/473] Emitting module Numerics
+[204/511] Compiling ContainersPreview Container+SpanwiseZip.swift
+[205/511] Compiling ContainersPreview Container.swift
+[206/511] Compiling ContainersPreview ContainerIterator.swift
+[207/513] Compiling ContainersPreview DynamicContainer.swift
+[208/513] Compiling ContainersPreview MutableContainer.swift
+[209/513] Compiling ContainersPreview PermutableContainer.swift
+[210/513] Compiling ContainersPreview Ref.swift
+[211/513] Compiling ContainersPreview Shared.swift
+[212/513] Compiling ContainersPreview BorrowingIteratorProtocol+Reduce.swift
+[213/513] Compiling ContainersPreview BorrowingIteratorProtocol+SpanwiseZip.swift
+[214/513] Compiling ContainersPreview BorrowingIteratorProtocol.swift
+[215/513] Compiling ContainersPreview Producer+Map.swift
+[216/513] Compiling ContainersPreview Producer+Reduce.swift
+[217/513] Compiling ContainersPreview Producer.swift
+[218/513] Compiling ContainersPreview InputSpan.swift
+[219/513] Compiling ContainersPreview MutableRef.swift
+[220/513] Compiling ContainersPreview RandomAccessContainer.swift
+[221/513] Compiling ContainersPreview RangeExpression2.swift
+[222/513] Compiling ContainersPreview RangeReplaceableContainer.swift
+[223/513] Compiling ContainersPreview BorrowingSequence.swift
+[224/513] Compiling ContainersPreview BidirectionalContainer.swift
+[225/513] Compiling ContainersPreview Container+Filter.swift
+[226/513] Compiling ContainersPreview BorrowingIteratorProtocol+ElementsEqual.swift
+[227/513] Compiling ContainersPreview BorrowingIteratorProtocol+Filter.swift
+[228/513] Compiling ContainersPreview BorrowingIteratorProtocol+Map.swift
+[229/513] Compiling ContainersPreview Drain.swift
+[230/513] Compiling ContainersPreview Producer+Collect.swift
+[231/513] Compiling ContainersPreview Producer+Filter.swift
+[231/513] Compiling yyjson.c
+[233/513] Compiling OrderedCollections OrderedSet+Partial SetAlgebra formIntersection.swift
+[234/513] Compiling OrderedCollections OrderedSet+Partial SetAlgebra formSymmetricDifference.swift
+[235/513] Compiling OrderedCollections OrderedSet+Partial SetAlgebra formUnion.swift
+[236/513] Compiling OrderedCollections OrderedSet+Partial SetAlgebra intersection.swift
+[237/513] Compiling ContainersPreview Strideable+Limits.swift
+[238/513] Compiling ContainersPreview Drain+Map.swift
+[239/513] Compiling ContainersPreview Drain+Reduce.swift
+[240/517] Compiling ContainersPreview SpanIterator.swift
+[241/517] Compiling ContainersPreview UniqueBox.swift
+[242/517] Compiling OrderedCollections OrderedSet+Partial SetAlgebra subtract.swift
+[243/517] Compiling OrderedCollections OrderedSet+Partial SetAlgebra subtracting.swift
+[244/517] Compiling ContainersPreview BorrowingSequence+Algorithms.swift
+[245/517] Compiling ContainersPreview BorrowingSequence+Standard Conformances.swift
+[246/517] Compiling ContainersPreview BorrowingSequence+Utilities.swift
+[247/517] Emitting module ContainersPreview
+[247/517] Compiling stream.cpp
+[249/517] Compiling MLXFastCore FileSize.swift
+[250/517] Compiling MLXFastCore ExpertStreamingStats.swift
+[251/517] Compiling MLXFastCore Errors.swift
+[252/517] Compiling MLXFastCore Constants.swift
+[253/517] Compiling MLXFastCore ByteLimitParsing.swift
+[254/517] Compiling MLXFastCore AcceptanceBand.swift
+[255/517] Emitting module MLXFastCore
+[256/517] Compiling MLXFastCore Golden.swift
+[263/517] Compiling OrderedCollections OrderedSet+Equatable.swift
+[264/517] Compiling OrderedCollections OrderedSet+ExpressibleByArrayLiteral.swift
+[265/517] Compiling OrderedCollections OrderedSet+Hashable.swift
+[266/517] Compiling OrderedCollections OrderedSet+Initializers.swift
+[267/517] Compiling OrderedCollections OrderedSet+Insertions.swift
+[272/517] Compiling OrderedCollections OrderedDictionary+ExpressibleByDictionaryLiteral.swift
+[273/517] Compiling OrderedCollections OrderedDictionary+Hashable.swift
+[274/517] Compiling OrderedCollections OrderedDictionary+Initializers.swift
+[275/517] Compiling OrderedCollections OrderedDictionary+Invariants.swift
+[276/517] Compiling OrderedCollections OrderedDictionary+Move.swift
+[277/517] Compiling ContainersPreview OutputSpan+Extras.swift
+[278/517] Compiling ContainersPreview TemporaryAllocation.swift
+[279/517] Compiling ContainersPreview BorrowingIteratorProtocol+Copy.swift
+[304/523] Compiling OrderedCollections OrderedSet+UnorderedView.swift
+[305/523] Compiling OrderedCollections OrderedSet+UnstableInternals.swift
+[306/523] Compiling OrderedCollections OrderedSet.swift
+[307/523] Compiling OrderedCollections _UnsafeBitset.swift
+[313/523] Compiling OrderedCollections OrderedSet+Invariants.swift
+[314/523] Compiling OrderedCollections OrderedSet+Move.swift
+[315/523] Compiling OrderedCollections OrderedSet+Partial MutableCollection.swift
+[316/523] Compiling OrderedCollections OrderedSet+Partial RangeReplaceableCollection.swift
+[317/523] Compiling MLXFastTransform CheckpointIndex.swift
+[317/523] Compiling linalg.cpp
+[318/523] Compiling random.cpp
+[320/524] Compiling MLXFastTransform Transform.swift
+[321/524] Compiling MLXFastTransform LagunaCheckpointValidation.swift
+[322/524] Compiling MLXFastTransform AffineMetadataCoding.swift
+[323/524] Emitting module MLXFastTransform
+[324/524] Compiling MLXFastTransform TiedHeadMetadataCoding.swift
+[325/566] Compiling DequeModule UniqueDeque+Equatable.swift
+[326/566] Compiling DequeModule UniqueDeque+Experimental.swift
+[327/566] Compiling DequeModule UniqueDeque+Hashable.swift
+[328/569] Compiling DequeModule RigidDeque+Equatable.swift
+[329/569] Compiling DequeModule RigidDeque+Experimental.swift
+[330/569] Compiling DequeModule RigidDeque+Hashable.swift
+[331/569] Compiling DequeModule RigidDeque+Consumption.swift
+[332/569] Compiling DequeModule RigidDeque+Container.swift
+[333/569] Compiling DequeModule RigidDeque+Descriptions.swift
+[334/569] Compiling DequeModule RigidDeque.swift
+[335/569] Compiling DequeModule UniqueDeque+Append.swift
+[336/569] Compiling DequeModule UniqueDeque+Consumption.swift
+[337/569] Compiling DequeModule _DequeBuffer.swift
+[338/569] Compiling DequeModule _DequeBufferHeader.swift
+[339/569] Compiling DequeModule RigidDeque+Append.swift
+[340/569] Compiling DequeModule RigidDeque+Removals.swift
+[341/569] Compiling DequeModule RigidDeque+Replacements.swift
+[342/569] Compiling DequeModule RigidDeque+Testing.swift
+[343/569] Compiling DequeModule Deque+Equatable.swift
+[344/569] Compiling DequeModule Deque+ExpressibleByArrayLiteral.swift
+[345/569] Compiling DequeModule Deque+Extras.swift
+[346/569] Compiling DequeModule Deque+Hashable.swift
+[347/569] Compiling DequeModule RigidDeque+Initializers.swift
+[348/569] Compiling DequeModule RigidDeque+Insertions.swift
+[349/569] Compiling DequeModule RigidDeque+Prepend.swift
+[350/569] Compiling DequeModule UniqueDeque+Initializers.swift
+[351/569] Compiling DequeModule UniqueDeque+Insertions.swift
+[352/569] Compiling DequeModule UniqueDeque+Prepend.swift
+[353/569] Compiling DequeModule UniqueDeque+Removals.swift
+[354/569] Compiling DequeModule UniqueDeque+Replacements.swift
+[355/569] Compiling DequeModule UniqueDeque.swift
+[356/569] Emitting module OrderedCollections
+[357/569] Compiling DequeModule Deque+Codable.swift
+[358/569] Compiling DequeModule Deque+Collection.swift
+[359/569] Compiling DequeModule Deque+CustomReflectable.swift
+[360/569] Compiling DequeModule Deque+Descriptions.swift
+[361/569] Compiling DequeModule UniqueDeque+Container.swift
+[362/569] Compiling DequeModule UniqueDeque+Deprecated.swift
+[363/569] Compiling DequeModule UniqueDeque+Descriptions.swift
+[364/569] Compiling DequeModule Deque+Testing.swift
+[365/569] Compiling DequeModule Deque._Storage.swift
+[366/569] Compiling DequeModule Deque._UnsafeHandle.swift
+[367/569] Compiling DequeModule Deque.swift
+[367/569] Compiling graph_utils.cpp
+[368/569] Compiling dtype_utils.cpp
+[369/569] Compiling dtype.cpp
+[370/569] Compiling transforms.cpp
+[371/569] Compiling load.cpp
+[372/580] Compiling fft.cpp
+[373/583] Compiling safetensors.cpp
+[374/583] Compiling utils.cpp
+[375/583] Compiling einsum.cpp
+[376/583] Compiling primitives.cpp
+[377/583] Compiling fast.cpp
+[379/583] Compiling DequeModule _DequeSlot.swift
+[380/583] Compiling DequeModule _UnsafeDequeHandle.swift
+[381/583] Compiling DequeModule _UnsafeDequeSegments.swift
+[382/583] Emitting module DequeModule
+[382/583] Compiling device.cpp
+[383/583] Compiling no_mpi.cpp
+[384/583] Compiling no_nccl.cpp
+[384/583] Compiling no_ring.cpp
+[386/583] Compiling primitives.cpp
+[387/583] Compiling distributed.cpp
+[388/583] Compiling ops.cpp
+[390/583] Compiling utils.cpp
+[391/583] Compiling unary.cpp
+[392/583] Compiling compile.cpp
+[393/583] Compiling scan.cpp
+[394/583] Compiling sort.cpp
+[395/583] Compiling resident.cpp
+[396/583] Compiling slicing.cpp
+[397/583] Compiling softmax.cpp
+[398/583] Compiling ternary.cpp
+[400/583] Compiling Jinja Token.swift
+[401/583] Compiling Jinja Utilities.swift
+[401/584] Compiling rope.cpp
+[403/584] Compiling Jinja PropertyMembers.swift
+[404/584] Compiling Jinja Template.swift
+[405/584] Compiling Jinja Parser.swift
+[406/584] Compiling Jinja Error.swift
+[407/584] Compiling Jinja Macro.swift
+[408/584] Compiling Jinja Tests.swift
+[408/584] Compiling scaled_dot_product_attention.cpp
+[410/584] Compiling Jinja Value.swift
+[411/584] Compiling Jinja Lexer.swift
+[412/584] Compiling Jinja Globals.swift
+[413/584] Emitting module Jinja
+[414/584] Compiling Jinja Interpreter.swift
+[415/584] Compiling Jinja AST.swift
+[416/584] Compiling Jinja Filters.swift
+[416/584] Compiling reduce.cpp
+[417/584] Compiling metal.cpp
+[418/584] Compiling primitives.cpp
+[419/584] Compiling fence.cpp
+[420/584] Compiling normalization.cpp
+[421/584] Compiling logsumexp.cpp
+[422/584] Compiling hadamard.cpp
+[423/584] Compiling quantized.cpp
+[424/584] Compiling jit_kernels.cpp
+[425/584] Compiling indexing.cpp
+[426/584] Compiling export.cpp
+[427/584] Compiling matmul.cpp
+[428/584] Compiling event.cpp
+[429/584] Compiling eval.cpp
+[430/584] Compiling fft.cpp
+[431/584] Compiling device_info.cpp
+[432/584] Compiling slicing.cpp
+[433/584] Compiling threefry.cpp
+[434/584] Compiling distributed.cpp
+[435/584] Compiling primitives.cpp
+[436/584] Compiling no_cuda.cpp
+[437/584] Compiling allocator.cpp
+[438/584] Compiling copy.cpp
+[440/584] Compiling binary.cpp
+[441/584] Compiling custom_kernel.cpp
+[442/584] Compiling compiled.cpp
+[443/584] Compiling conv.cpp
+[444/584] Compiling device.cpp
+[445/584] Compiling softmax.cpp
+[446/584] Compiling select.cpp
+[447/584] Compiling primitives.cpp
+[448/584] Compiling scan.cpp
+[449/584] Compiling svd.cpp
+[450/584] Compiling matmul.cpp
+[451/584] Compiling quantized.cpp
+[452/584] Compiling qrf.cpp
+[453/584] Compiling logsumexp.cpp
+[454/584] Compiling sort.cpp
+[455/584] Compiling unary.cpp
+[456/584] Compiling luf.cpp
+[457/584] Compiling masked_mm.cpp
+[458/584] Compiling jit_compiler.cpp
+[459/584] Compiling reduce.cpp
+[460/584] Compiling encoder.cpp
+[461/584] Compiling device_info.cpp
+[462/584] Compiling eval.cpp
+[463/584] Compiling hadamard.cpp
+[464/584] Compiling inverse.cpp
+[465/584] Compiling cblas.cpp
+[466/584] Compiling distributed.cpp
+[467/584] Compiling bnns.cpp
+[468/584] Compiling fft.cpp
+[469/584] Compiling slicing.cpp
+[470/584] Compiling utils.cpp
+[471/584] Compiling arg_reduce.cpp
+[472/584] Compiling eigh.cpp
+[473/584] Compiling utils.cpp
+[474/584] Compiling unary_ops.cpp
+[475/584] Compiling unary.cpp
+[476/584] Compiling eig.cpp
+[477/584] Compiling ternary_ops.cpp
+[478/584] Compiling ternary.cpp
+[479/584] Compiling steel_gemm_splitk_nax.cpp
+[480/584] Compiling steel_gemm_splitk.cpp
+[481/584] Compiling steel_gemm_segmented.cpp
+[482/584] Compiling reduce.cpp
+[483/584] Compiling steel_gemm_segmented_nax.cpp
+[484/584] Compiling steel_gemm_masked.cpp
+[485/584] Compiling steel_gemm_gather_nax.cpp
+[486/584] Compiling steel_gemm_gather.cpp
+[487/584] Compiling steel_gemm_fused_nax.cpp
+[488/584] Compiling steel_gemm_fused.cpp
+[489/584] Compiling steel_conv_general.cpp
+[490/584] Compiling steel_conv_3d.cpp
+[491/584] Compiling steel_conv.cpp
+[492/584] Compiling load.cpp
+[493/584] Compiling steel_attention.cpp
+[494/584] Compiling steel_attention_nax.cpp
+[495/584] Compiling sort.cpp
+[496/584] Compiling softmax.cpp
+[497/584] Compiling scatter_axis.cpp
+[498/584] Compiling scan.cpp
+[499/584] Compiling scatter.cpp
+[500/584] Compiling reduce_utils.cpp
+[501/584] Compiling reduce.cpp
+[502/584] Compiling quantized_utils.cpp
+[503/584] Compiling quantized_nax.cpp
+[504/584] Compiling quantized.cpp
+[504/584] Compiling masked_scatter.cpp
+[506/584] Compiling logsumexp.cpp
+[507/584] Compiling hadamard.cpp
+[508/584] Compiling gemv.cpp
+[508/584] Compiling gemv_masked.cpp
+[510/584] Compiling gemm.cpp
+[511/584] Compiling gemm_nax.cpp
+[512/584] Compiling gather_axis.cpp
+[513/584] Compiling fp_quantized_nax.cpp
+[513/584] Compiling cholesky.cpp
+[515/584] Compiling gather_front.cpp
+[516/584] Compiling fp_quantized.cpp
+[517/584] Compiling gather.cpp
+[518/584] Compiling compiled.cpp
+[519/584] Compiling fft.cpp
+[520/584] Compiling copy.cpp
+[521/584] Compiling binary_two.cpp
+[521/584] Compiling conv.cpp
+[523/584] Compiling binary_ops.cpp
+[524/584] Compiling compiled_preamble.cpp
+[525/584] Compiling conv.cpp
+[526/584] Compiling arange.cpp
+[526/584] Compiling binary.cpp
+[528/584] Compiling broadcasting.cpp
+[529/584] Compiling indexing.cpp
+[530/584] Compiling metal_kernel.cpp
+[531/584] Compiling common.cpp
+[532/584] Compiling array.cpp
+[533/584] Compiling jaccl_conditional.cpp
+[534/584] Compiling copy.cpp
+[535/584] Compiling string.cpp
+[536/584] Compiling version.cpp
+[537/584] Compiling transforms_impl.cpp
+[538/584] Compiling transforms.cpp
+[539/584] Compiling vector.cpp
+[540/584] Compiling stream.cpp
+[541/584] Compiling compiled_conditional.cpp
+[542/584] Compiling random.cpp
+[543/584] Compiling metal.cpp
+[544/584] Compiling ops.cpp
+[545/584] Compiling error.cpp
+[546/584] Compiling memory.cpp
+[547/584] Compiling linalg.cpp
+[548/584] Compiling map.cpp
+[549/584] Compiling graph_utils.cpp
+[550/584] Compiling fft.cpp
+[551/584] Compiling io.cpp
+[552/584] Compiling CNIOWindows shim.c
+[553/584] Compiling distributed_group.cpp
+[554/584] Compiling CNIOWindows WSAStartup.c
+[555/584] Compiling CNIOWASI CNIOWASI.c
+[556/584] Compiling export.cpp
+[557/584] Compiling CNIOOpenBSD shim.c
+[558/584] Compiling CNIOLinux shim.c
+[559/584] Compiling CNIOLinux liburing_shims.c
+[560/584] Compiling CNIOFreeBSD shim.c
+[560/584] Compiling io_types.cpp
+[561/584] Compiling fast.cpp
+[563/584] Write sources
+[564/603] Compiling distributed.cpp
+[565/603] Compiling CNIODarwin shim.c
+[565/603] Compiling device.cpp
+[567/603] Compiling Atomics UnsafeAtomic.swift
+[568/604] Compiling compile.cpp
+[570/604] Compiling Atomics ManagedAtomic.swift
+[571/604] Compiling Atomics DoubleWord.swift
+[572/604] Compiling Atomics ManagedAtomicLazyReference.swift
+[573/604] Compiling Atomics AtomicValue.swift
+[574/604] Compiling Atomics AtomicMemoryOrderings.swift
+[575/604] Compiling Atomics IntegerOperations.swift
+[576/604] Compiling Atomics UnsafeAtomicLazyReference.swift
+[577/604] Compiling Atomics AtomicInteger.swift
+[578/604] Compiling Atomics AtomicOptionalWrappable.swift
+[579/604] Compiling Atomics AtomicReference.swift
+[580/604] Compiling Atomics AtomicStorage.swift
+[581/604] Compiling Atomics Unmanaged extensions.swift
+[582/604] Compiling Atomics OptionalRawRepresentable.swift
+[583/604] Compiling Atomics RawRepresentable.swift
+[583/604] Compiling format.cc
+[584/604] Compiling cuda.cpp
+[585/604] Compiling closure.cpp
+[587/604] Compiling Atomics AtomicBool.swift
+[588/604] Compiling Atomics IntegerConformances.swift
+[589/604] Compiling Atomics PointerConformances.swift
+[590/604] Compiling Atomics Primitives.native.swift
+[591/604] Emitting module Atomics
+[591/604] Compiling array.cpp
+[592/604] Compiling Cmlx.m
+[593/604] Compiling binary.cpp
+[594/643] Compiling c-nioatomics.c
+[596/643] Compiling MLX Transforms+Internal.swift
+[597/643] Compiling MLX Transforms+Vmap.swift
+[598/645] Compiling MLX MLXFast.swift
+[599/645] Compiling MLX MLXFastKernel.swift
+[600/645] Compiling MLX Memory.swift
+[601/645] Compiling MLX Export.swift
+[602/645] Compiling MLX FFT.swift
+[603/645] Compiling MLX Factory.swift
+[603/645] Compiling c-atomics.c
+[605/645] Compiling MLX ArrayAt.swift
+[606/645] Compiling MLX Cmlx+Util.swift
+[607/645] Compiling MLX DType.swift
+[608/652] Compiling MLX Device.swift
+[609/652] Compiling MLX ErrorHandler.swift
+[610/652] Compiling MLX EvalProbe.swift
+[611/652] Compiling NIOConcurrencyHelpers NIOLockedValueBox.swift
+[612/652] Compiling MLX MLXArray+Ops.swift
+[613/652] Compiling MLX MLXArray.swift
+[614/652] Compiling MLX MLXCustomFunction.swift
+[615/652] Emitting module MLX
+[616/652] Compiling NIOConcurrencyHelpers atomics.swift
+[617/652] Compiling MLX Transforms.swift
+[618/652] Compiling MLX WiredMemory.swift
+[619/652] Compiling MLX MLXArray+Init.swift
+[620/652] Compiling MLX MLXArray+Metal.swift
+[621/652] Compiling MLX MLXArray+Normalizer.swift
+[622/652] Compiling MLX Transforms+CompileOverloads.swift
+[623/652] Compiling MLX Transforms+Eval.swift
+[624/652] Compiling MLX Transforms+Grad.swift
+[625/652] Compiling MLX ParameterTypes.swift
+[626/652] Compiling MLX Protocols.swift
+[627/652] Compiling MLX Random.swift
+[628/652] Compiling MLX State.swift
+[629/652] Compiling MLX Stream.swift
+[630/652] Compiling MLX Transforms+Compile.swift
+[631/652] Compiling MLX Foundation+Util.swift
+[632/652] Compiling MLX GPU+Metal.swift
+[633/652] Compiling MLX IO.swift
+[634/652] Compiling NIOConcurrencyHelpers NIOThreadPoolWorkAvailable.swift
+[635/652] Compiling NIOConcurrencyHelpers NIOLock.swift
+[636/652] Emitting module NIOConcurrencyHelpers
+[637/652] Compiling NIOConcurrencyHelpers NIOAtomic.swift
+[638/652] Compiling NIOConcurrencyHelpers lock.swift
+[639/652] Compiling MLX Linalg.swift
+[640/652] Compiling MLX MLXArray+Bytes.swift
+[641/652] Compiling MLX MLXArray+Indexing.swift
+[642/702] Compiling NIOCore ByteBuffer-core.swift
+[643/702] Compiling NIOCore ByteBuffer-hex.swift
+[644/702] Compiling NIOCore FileRegion.swift
+[645/742] Emitting module MLXRandom
+[646/742] Compiling MLXRandom Random.swift
+[647/742] Compiling MLXFast MLXFast.swift
+[648/742] Emitting module MLXFast
+[649/742] Compiling MLXFast MLXFastKernel.swift
+[650/742] Compiling MLXNN Quantized.swift
+[651/743] Compiling MLXNN PositionalEncoding.swift
+[652/743] Compiling MLXNN Pooling.swift
+[653/743] Compiling MLXNN Transformer.swift
+[654/743] Compiling MLXNN Recurrent.swift
+[655/743] Compiling MLXNN ValueAndGrad.swift
+[656/743] Compiling NIOCore DispatchQueue+WithFuture.swift
+[657/743] Compiling NIOCore EventLoop+Deprecated.swift
+[658/743] Compiling NIOCore EventLoop+SerialExecutor.swift
+[659/743] Compiling NIOCore EventLoop.swift
+[660/743] Compiling NIOCore EventLoopFuture+AssumeIsolated.swift
+[661/743] Compiling NIOCore NIOLoopBound.swift
+[662/743] Compiling NIOCore NIOPooledRecvBufferAllocator.swift
+[663/743] Compiling NIOCore NIOScheduledCallback.swift
+[664/743] Compiling NIOCore NIOSendable.swift
+[665/743] Compiling NIOCore NIOSplitLinesMessageDecoder.swift
+[666/743] Compiling NIOCore MulticastChannel.swift
+[667/743] Compiling NIOCore NIOAny.swift
+[668/743] Compiling NIOCore NIOCloseOnErrorHandler.swift
+[669/743] Compiling NIOCore NIOCoreSendableMetatype.swift
+[670/743] Compiling NIOCore NIODecodedAsyncSequence.swift
+[671/748] Compiling NIOCore IntegerBitPacking.swift
+[672/748] Compiling NIOCore IntegerTypes.swift
+[673/748] Compiling NIOCore Interfaces.swift
+[674/748] Compiling NIOCore Linux.swift
+[675/748] Compiling NIOCore MarkedCircularBuffer.swift
+[676/748] Compiling MLXNN Cache.swift
+[677/748] Compiling MLXNN ConvolutionTransposed.swift
+[678/748] Compiling MLXNN Dropout.swift
+[679/748] Compiling NIOCore AsyncChannelHandler.swift
+[680/748] Compiling NIOCore AsyncChannelInboundStream.swift
+[681/748] Compiling NIOCore AsyncChannelOutboundWriter.swift
+[682/748] Compiling MLXNN Containers.swift
+[683/748] Compiling MLXNN Convolution.swift
+[684/748] Compiling MLXNN Embedding.swift
+[685/748] Compiling MLXNN Linear.swift
+[686/748] Compiling MLXNN Activations.swift
+[687/748] Compiling NIOCore EventLoopFuture+Deprecated.swift
+[688/748] Compiling NIOCore EventLoopFuture+WithEventLoop.swift
+[689/748] Compiling NIOCore EventLoopFuture.swift
+[690/748] Compiling NIOCore FileDescriptor.swift
+[691/748] Compiling NIOCore FileHandle.swift
+[692/748] Compiling MLXNN Normalization.swift
+[693/748] Compiling MLXNN Module.swift
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift/Source/MLXNN/Module.swift:1411:34: warning: conditional downcast from 'T?' to 'T' does nothing
+1409 |             // note: this gives a warning but it does in fact do something
+1410 |             // in the case where this is e.g. ParameterInfo<MLXArray?>
+1411 |             if let value = value as? T {
+     |                                  `- warning: conditional downcast from 'T?' to 'T' does nothing
+1412 |                 return value
+1413 |             } else {
+
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift/Source/MLXNN/Module.swift:1524:36: warning: conditional downcast from 'T?' to 'T' does nothing
+1522 |             // note: this gives a warning but it does in fact do something
+1523 |             // in the case where this is e.g. ModuleInfo<Linear?>
+1524 |             if let module = module as? T {
+     |                                    `- warning: conditional downcast from 'T?' to 'T' does nothing
+1525 |                 return module
+1526 |             } else {
+
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift/Source/MLXNN/Module.swift:293:13: warning: default will never be executed
+ 291 |                 return isAllNone ? .none : .array(result)
+ 292 | 
+ 293 |             default:
+     |             `- warning: default will never be executed
+ 294 |                 fatalError("Unexpected leaf \(vk) = \(v)")
+ 295 |             }
+[694/748] Compiling NIOCore SystemCallHelpers.swift
+[695/748] Compiling NIOCore TimeAmount+Duration.swift
+[696/748] Compiling NIOCore TypeAssistedChannelHandler.swift
+[697/748] Compiling NIOCore UniversalBootstrapSupport.swift
+[698/748] Compiling NIOCore Utilities.swift
+[699/748] Compiling NIOCore NIOTransportAccessibleChannelCore.swift
+[700/748] Compiling NIOCore RecvByteBufferAllocator.swift
+[701/748] Compiling NIOCore SingleStepByteToMessageDecoder.swift
+[702/748] Compiling NIOCore SocketAddresses.swift
+[703/748] Compiling NIOCore SocketOptionProvider.swift
+[705/748] Compiling NIOCore GlobalSingletons.swift
+[706/748] Compiling NIOCore IO.swift
+[707/748] Compiling NIOCore IOData.swift
+[708/748] Compiling NIOCore IPProtocol.swift
+[709/748] Compiling NIOCore NIOAsyncSequenceProducer.swift
+[710/748] Compiling NIOCore NIOAsyncSequenceProducerStrategies.swift
+[711/748] Compiling NIOCore NIOAsyncWriter.swift
+[712/748] Compiling NIOCore NIOThrowingAsyncSequenceProducer.swift
+[713/748] Compiling NIOCore BSDSocketAPI.swift
+[714/748] Compiling NIOCore ByteBuffer-aux.swift
+[715/748] Compiling NIOCore ByteBuffer-binaryEncodedLengthPrefix.swift
+[716/748] Compiling NIOCore ByteBuffer-conversions.swift
+[719/748] Compiling NIOCore ChannelPipeline.swift
+[720/748] Compiling NIOCore CircularBuffer.swift
+[721/748] Compiling NIOCore Codec.swift
+[722/748] Compiling NIOCore ConvenienceOptionSupport.swift
+[723/748] Compiling NIOCore DeadChannel.swift
+[726/748] Compiling MLXNN Losses.swift
+[731/748] Emitting module MLXNN
+[734/748] Compiling MLXNN Upsample.swift
+[735/750] Compiling MLXOptimizers Optimizers.swift
+[736/750] Emitting module MLXOptimizers
+[737/750] Compiling NIOCore ByteBuffer-int.swift
+[738/750] Compiling NIOCore ByteBuffer-lengthPrefix.swift
+[739/750] Compiling NIOCore ByteBuffer-multi-int.swift
+[740/750] Compiling NIOCore ByteBuffer-quicBinaryEncodingStrategy.swift
+[741/750] Compiling NIOCore ByteBuffer-views.swift
+[742/862] Emitting module NIOCore
+[743/867] Compiling EventSource EventSource.swift
+[744/867] Compiling EventSource EventSource+AsyncHTTPClient.swift
+[745/867] Compiling EventSource AsyncSequence+Events.swift
+[746/867] Compiling EventSource AsyncEventsSequence.swift
+[747/867] Emitting module EventSource
+[748/919] Compiling MLXLMCommon Tokenizer.swift
+[749/919] Compiling MLXLMCommon TokenizerLoader.swift
+[750/919] Compiling MLXLMCommon GLM4ToolCallParser.swift
+[751/919] Compiling MLXLMCommon GemmaFunctionParser.swift
+[752/919] Compiling MLXLMCommon HarmonyToolCallParser.swift
+[753/919] Compiling MLXLMCommon JSONToolCallParser.swift
+[754/919] Compiling MLXLMCommon KimiK2ToolCallParser.swift
+[755/919] Compiling MLXLMCommon Llama3ToolCallParser.swift
+[756/927] Compiling MLXLMCommon MiniMaxM2ToolCallParser.swift
+[757/927] Compiling MLXLMCommon MistralToolCallParser.swift
+[758/927] Compiling MLXLMCommon ParserUtilities.swift
+[759/927] Compiling MLXLMCommon PythonicToolCallParser.swift
+[760/927] Compiling MLXLMCommon XMLFunctionParser.swift
+[761/927] Compiling MLXLMCommon Tool.swift
+[762/927] Compiling MLXLMCommon ToolCall.swift
+[763/927] Compiling MLXLMCommon ToolCallFormat.swift
+[764/927] Compiling HuggingFace InferenceClient.swift
+[765/927] Compiling HuggingFace TextToVideo.swift
+[766/927] Compiling HuggingFace HuggingFaceAuthenticationManager.swift
+[767/927] Compiling HuggingFace OAuthClient.swift
+[768/927] Compiling HuggingFace TokenStorage.swift
+[769/927] Compiling HuggingFace URLSession+Linux.swift
+[770/927] Compiling HuggingFace FileLock.swift
+[771/927] Compiling HuggingFace HTTPClient.swift
+[772/927] Compiling HuggingFace Message.swift
+[773/927] Compiling HuggingFace HubClient+Git.swift
+[774/927] Compiling HuggingFace HubClient+Models.swift
+[775/927] Compiling HuggingFace HubClient+OAuth.swift
+[776/927] Compiling HuggingFace HubCache.swift
+[777/927] Compiling HuggingFace HubClient+Collections.swift
+[778/927] Compiling HuggingFace HubClient+Datasets.swift
+[779/927] Compiling HuggingFace HubClient+Discussions.swift
+[780/927] Compiling HuggingFace HubClient+Organizations.swift
+[781/927] Compiling HuggingFace AccessRequest.swift
+[782/927] Compiling HuggingFace Billing.swift
+[783/927] Compiling HuggingFace Collection.swift
+[784/927] Compiling HuggingFace CommaSeparatedList.swift
+[785/927] Compiling HuggingFace Dataset.swift
+[786/927] Compiling HuggingFace Discussion.swift
+[787/927] Compiling HuggingFace File.swift
+[788/927] Compiling HuggingFace Git.swift
+[789/927] Compiling HuggingFace HubClient+Files.swift
+[790/927] Compiling HuggingFace HubClient+Pagination.swift
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1178:52: warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+ 128 | /// Incremental per-request detokenizer with UTF-8 + stop-string holdback.
+ 129 | /// See CONTRACT-ISSUES-B-scheduler.md §3.
+ 130 | public protocol CBv2IncrementalDetokenizer: AnyObject {
+     |                 `- note: protocol 'CBv2IncrementalDetokenizer' does not conform to the 'Sendable' protocol
+ 131 |     /// Append confirmed tokens; returns text now safe to emit.
+ 132 |     func push(_ tokens: [Int]) -> String
+     :
+1176 |                 stream?.reserveEmission()
+1177 |                 detokQueue.async {
+1178 |                     let text = isStopToken ? "" : (detokenizer?.push([token]) ?? "")
+     |                                                    `- warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+1179 |                     stream?.emit(
+1180 |                         .delta(text: text, tokens: [token], logprobs: logprobs),
+
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1279:32: warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+ 128 | /// Incremental per-request detokenizer with UTF-8 + stop-string holdback.
+ 129 | /// See CONTRACT-ISSUES-B-scheduler.md §3.
+ 130 | public protocol CBv2IncrementalDetokenizer: AnyObject {
+     |                 `- note: protocol 'CBv2IncrementalDetokenizer' does not conform to the 'Sendable' protocol
+ 131 |     /// Append confirmed tokens; returns text now safe to emit.
+ 132 |     func push(_ tokens: [Int]) -> String
+     :
+1277 |         if rec.request.stopStrings.isEmpty {
+1278 |             detokQueue.async {
+1279 |                 let trailing = detokenizer?.flush() ?? ""
+     |                                `- warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+1280 |                 if !trailing.isEmpty {
+1281 |                     stream?.emit(.delta(text: trailing, tokens: [], logprobs: nil))
+
+[#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+[791/927] Compiling HuggingFace HubClient+Papers.swift
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1178:52: warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+ 128 | /// Incremental per-request detokenizer with UTF-8 + stop-string holdback.
+ 129 | /// See CONTRACT-ISSUES-B-scheduler.md §3.
+ 130 | public protocol CBv2IncrementalDetokenizer: AnyObject {
+     |                 `- note: protocol 'CBv2IncrementalDetokenizer' does not conform to the 'Sendable' protocol
+ 131 |     /// Append confirmed tokens; returns text now safe to emit.
+ 132 |     func push(_ tokens: [Int]) -> String
+     :
+1176 |                 stream?.reserveEmission()
+1177 |                 detokQueue.async {
+1178 |                     let text = isStopToken ? "" : (detokenizer?.push([token]) ?? "")
+     |                                                    `- warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+1179 |                     stream?.emit(
+1180 |                         .delta(text: text, tokens: [token], logprobs: logprobs),
+
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1279:32: warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+ 128 | /// Incremental per-request detokenizer with UTF-8 + stop-string holdback.
+ 129 | /// See CONTRACT-ISSUES-B-scheduler.md §3.
+ 130 | public protocol CBv2IncrementalDetokenizer: AnyObject {
+     |                 `- note: protocol 'CBv2IncrementalDetokenizer' does not conform to the 'Sendable' protocol
+ 131 |     /// Append confirmed tokens; returns text now safe to emit.
+ 132 |     func push(_ tokens: [Int]) -> String
+     :
+1277 |         if rec.request.stopStrings.isEmpty {
+1278 |             detokQueue.async {
+1279 |                 let trailing = detokenizer?.flush() ?? ""
+     |                                `- warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+1280 |                 if !trailing.isEmpty {
+1281 |                     stream?.emit(.delta(text: trailing, tokens: [], logprobs: nil))
+
+[#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+[792/927] Compiling HuggingFace HubClient+Repos.swift
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1178:52: warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+ 128 | /// Incremental per-request detokenizer with UTF-8 + stop-string holdback.
+ 129 | /// See CONTRACT-ISSUES-B-scheduler.md §3.
+ 130 | public protocol CBv2IncrementalDetokenizer: AnyObject {
+     |                 `- note: protocol 'CBv2IncrementalDetokenizer' does not conform to the 'Sendable' protocol
+ 131 |     /// Append confirmed tokens; returns text now safe to emit.
+ 132 |     func push(_ tokens: [Int]) -> String
+     :
+1176 |                 stream?.reserveEmission()
+1177 |                 detokQueue.async {
+1178 |                     let text = isStopToken ? "" : (detokenizer?.push([token]) ?? "")
+     |                                                    `- warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+1179 |                     stream?.emit(
+1180 |                         .delta(text: text, tokens: [token], logprobs: logprobs),
+
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1279:32: warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+ 128 | /// Incremental per-request detokenizer with UTF-8 + stop-string holdback.
+ 129 | /// See CONTRACT-ISSUES-B-scheduler.md §3.
+ 130 | public protocol CBv2IncrementalDetokenizer: AnyObject {
+     |                 `- note: protocol 'CBv2IncrementalDetokenizer' does not conform to the 'Sendable' protocol
+ 131 |     /// Append confirmed tokens; returns text now safe to emit.
+ 132 |     func push(_ tokens: [Int]) -> String
+     :
+1277 |         if rec.request.stopStrings.isEmpty {
+1278 |             detokQueue.async {
+1279 |                 let trailing = detokenizer?.flush() ?? ""
+     |                                `- warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+1280 |                 if !trailing.isEmpty {
+1281 |                     stream?.emit(.delta(text: trailing, tokens: [], logprobs: nil))
+
+[#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+[793/927] Compiling HuggingFace OAuth.swift
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1178:52: warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+ 128 | /// Incremental per-request detokenizer with UTF-8 + stop-string holdback.
+ 129 | /// See CONTRACT-ISSUES-B-scheduler.md §3.
+ 130 | public protocol CBv2IncrementalDetokenizer: AnyObject {
+     |                 `- note: protocol 'CBv2IncrementalDetokenizer' does not conform to the 'Sendable' protocol
+ 131 |     /// Append confirmed tokens; returns text now safe to emit.
+ 132 |     func push(_ tokens: [Int]) -> String
+     :
+1176 |                 stream?.reserveEmission()
+1177 |                 detokQueue.async {
+1178 |                     let text = isStopToken ? "" : (detokenizer?.push([token]) ?? "")
+     |                                                    `- warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+1179 |                     stream?.emit(
+1180 |                         .delta(text: text, tokens: [token], logprobs: logprobs),
+
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1279:32: warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+ 128 | /// Incremental per-request detokenizer with UTF-8 + stop-string holdback.
+ 129 | /// See CONTRACT-ISSUES-B-scheduler.md §3.
+ 130 | public protocol CBv2IncrementalDetokenizer: AnyObject {
+     |                 `- note: protocol 'CBv2IncrementalDetokenizer' does not conform to the 'Sendable' protocol
+ 131 |     /// Append confirmed tokens; returns text now safe to emit.
+ 132 |     func push(_ tokens: [Int]) -> String
+     :
+1277 |         if rec.request.stopStrings.isEmpty {
+1278 |             detokQueue.async {
+1279 |                 let trailing = detokenizer?.flush() ?? ""
+     |                                `- warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+1280 |                 if !trailing.isEmpty {
+1281 |                     stream?.emit(.delta(text: trailing, tokens: [], logprobs: nil))
+
+[#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+[794/927] Compiling HuggingFace Organization.swift
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1178:52: warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+ 128 | /// Incremental per-request detokenizer with UTF-8 + stop-string holdback.
+ 129 | /// See CONTRACT-ISSUES-B-scheduler.md §3.
+ 130 | public protocol CBv2IncrementalDetokenizer: AnyObject {
+     |                 `- note: protocol 'CBv2IncrementalDetokenizer' does not conform to the 'Sendable' protocol
+ 131 |     /// Append confirmed tokens; returns text now safe to emit.
+ 132 |     func push(_ tokens: [Int]) -> String
+     :
+1176 |                 stream?.reserveEmission()
+1177 |                 detokQueue.async {
+1178 |                     let text = isStopToken ? "" : (detokenizer?.push([token]) ?? "")
+     |                                                    `- warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+1179 |                     stream?.emit(
+1180 |                         .delta(text: text, tokens: [token], logprobs: logprobs),
+
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1279:32: warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+ 128 | /// Incremental per-request detokenizer with UTF-8 + stop-string holdback.
+ 129 | /// See CONTRACT-ISSUES-B-scheduler.md §3.
+ 130 | public protocol CBv2IncrementalDetokenizer: AnyObject {
+     |                 `- note: protocol 'CBv2IncrementalDetokenizer' does not conform to the 'Sendable' protocol
+ 131 |     /// Append confirmed tokens; returns text now safe to emit.
+ 132 |     func push(_ tokens: [Int]) -> String
+     :
+1277 |         if rec.request.stopStrings.isEmpty {
+1278 |             detokQueue.async {
+1279 |                 let trailing = detokenizer?.flush() ?? ""
+     |                                `- warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+1280 |                 if !trailing.isEmpty {
+1281 |                     stream?.emit(.delta(text: trailing, tokens: [], logprobs: nil))
+
+[#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+[795/927] Compiling HuggingFace Pagination.swift
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1178:52: warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+ 128 | /// Incremental per-request detokenizer with UTF-8 + stop-string holdback.
+ 129 | /// See CONTRACT-ISSUES-B-scheduler.md §3.
+ 130 | public protocol CBv2IncrementalDetokenizer: AnyObject {
+     |                 `- note: protocol 'CBv2IncrementalDetokenizer' does not conform to the 'Sendable' protocol
+ 131 |     /// Append confirmed tokens; returns text now safe to emit.
+ 132 |     func push(_ tokens: [Int]) -> String
+     :
+1176 |                 stream?.reserveEmission()
+1177 |                 detokQueue.async {
+1178 |                     let text = isStopToken ? "" : (detokenizer?.push([token]) ?? "")
+     |                                                    `- warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+1179 |                     stream?.emit(
+1180 |                         .delta(text: text, tokens: [token], logprobs: logprobs),
+
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1279:32: warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+ 128 | /// Incremental per-request detokenizer with UTF-8 + stop-string holdback.
+ 129 | /// See CONTRACT-ISSUES-B-scheduler.md §3.
+ 130 | public protocol CBv2IncrementalDetokenizer: AnyObject {
+     |                 `- note: protocol 'CBv2IncrementalDetokenizer' does not conform to the 'Sendable' protocol
+ 131 |     /// Append confirmed tokens; returns text now safe to emit.
+ 132 |     func push(_ tokens: [Int]) -> String
+     :
+1277 |         if rec.request.stopStrings.isEmpty {
+1278 |             detokQueue.async {
+1279 |                 let trailing = detokenizer?.flush() ?? ""
+     |                                `- warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+1280 |                 if !trailing.isEmpty {
+1281 |                     stream?.emit(.delta(text: trailing, tokens: [], logprobs: nil))
+
+[#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+[796/927] Compiling HuggingFace Paper.swift
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1178:52: warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+ 128 | /// Incremental per-request detokenizer with UTF-8 + stop-string holdback.
+ 129 | /// See CONTRACT-ISSUES-B-scheduler.md §3.
+ 130 | public protocol CBv2IncrementalDetokenizer: AnyObject {
+     |                 `- note: protocol 'CBv2IncrementalDetokenizer' does not conform to the 'Sendable' protocol
+ 131 |     /// Append confirmed tokens; returns text now safe to emit.
+ 132 |     func push(_ tokens: [Int]) -> String
+     :
+1176 |                 stream?.reserveEmission()
+1177 |                 detokQueue.async {
+1178 |                     let text = isStopToken ? "" : (detokenizer?.push([token]) ?? "")
+     |                                                    `- warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+1179 |                     stream?.emit(
+1180 |                         .delta(text: text, tokens: [token], logprobs: logprobs),
+
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1279:32: warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+ 128 | /// Incremental per-request detokenizer with UTF-8 + stop-string holdback.
+ 129 | /// See CONTRACT-ISSUES-B-scheduler.md §3.
+ 130 | public protocol CBv2IncrementalDetokenizer: AnyObject {
+     |                 `- note: protocol 'CBv2IncrementalDetokenizer' does not conform to the 'Sendable' protocol
+ 131 |     /// Append confirmed tokens; returns text now safe to emit.
+ 132 |     func push(_ tokens: [Int]) -> String
+     :
+1277 |         if rec.request.stopStrings.isEmpty {
+1278 |             detokQueue.async {
+1279 |                 let trailing = detokenizer?.flush() ?? ""
+     |                                `- warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+1280 |                 if !trailing.isEmpty {
+1281 |                     stream?.emit(.delta(text: trailing, tokens: [], logprobs: nil))
+
+[#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+[797/927] Compiling HuggingFace HubClient+Spaces.swift
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1178:52: warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+ 128 | /// Incremental per-request detokenizer with UTF-8 + stop-string holdback.
+ 129 | /// See CONTRACT-ISSUES-B-scheduler.md §3.
+ 130 | public protocol CBv2IncrementalDetokenizer: AnyObject {
+     |                 `- note: protocol 'CBv2IncrementalDetokenizer' does not conform to the 'Sendable' protocol
+ 131 |     /// Append confirmed tokens; returns text now safe to emit.
+ 132 |     func push(_ tokens: [Int]) -> String
+     :
+1176 |                 stream?.reserveEmission()
+1177 |                 detokQueue.async {
+1178 |                     let text = isStopToken ? "" : (detokenizer?.push([token]) ?? "")
+     |                                                    `- warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+1179 |                     stream?.emit(
+1180 |                         .delta(text: text, tokens: [token], logprobs: logprobs),
+
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1279:32: warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+ 128 | /// Incremental per-request detokenizer with UTF-8 + stop-string holdback.
+ 129 | /// See CONTRACT-ISSUES-B-scheduler.md §3.
+ 130 | public protocol CBv2IncrementalDetokenizer: AnyObject {
+     |                 `- note: protocol 'CBv2IncrementalDetokenizer' does not conform to the 'Sendable' protocol
+ 131 |     /// Append confirmed tokens; returns text now safe to emit.
+ 132 |     func push(_ tokens: [Int]) -> String
+     :
+1277 |         if rec.request.stopStrings.isEmpty {
+1278 |             detokQueue.async {
+1279 |                 let trailing = detokenizer?.flush() ?? ""
+     |                                `- warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+1280 |                 if !trailing.isEmpty {
+1281 |                     stream?.emit(.delta(text: trailing, tokens: [], logprobs: nil))
+
+[#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+[798/927] Compiling HuggingFace HubClient+User.swift
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1178:52: warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+ 128 | /// Incremental per-request detokenizer with UTF-8 + stop-string holdback.
+ 129 | /// See CONTRACT-ISSUES-B-scheduler.md §3.
+ 130 | public protocol CBv2IncrementalDetokenizer: AnyObject {
+     |                 `- note: protocol 'CBv2IncrementalDetokenizer' does not conform to the 'Sendable' protocol
+ 131 |     /// Append confirmed tokens; returns text now safe to emit.
+ 132 |     func push(_ tokens: [Int]) -> String
+     :
+1176 |                 stream?.reserveEmission()
+1177 |                 detokQueue.async {
+1178 |                     let text = isStopToken ? "" : (detokenizer?.push([token]) ?? "")
+     |                                                    `- warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+1179 |                     stream?.emit(
+1180 |                         .delta(text: text, tokens: [token], logprobs: logprobs),
+
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1279:32: warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+ 128 | /// Incremental per-request detokenizer with UTF-8 + stop-string holdback.
+ 129 | /// See CONTRACT-ISSUES-B-scheduler.md §3.
+ 130 | public protocol CBv2IncrementalDetokenizer: AnyObject {
+     |                 `- note: protocol 'CBv2IncrementalDetokenizer' does not conform to the 'Sendable' protocol
+ 131 |     /// Append confirmed tokens; returns text now safe to emit.
+ 132 |     func push(_ tokens: [Int]) -> String
+     :
+1277 |         if rec.request.stopStrings.isEmpty {
+1278 |             detokQueue.async {
+1279 |                 let trailing = detokenizer?.flush() ?? ""
+     |                                `- warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+1280 |                 if !trailing.isEmpty {
+1281 |                     stream?.emit(.delta(text: trailing, tokens: [], logprobs: nil))
+
+[#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+[799/927] Compiling MLXLMCommon ModelConfiguration.swift
+[800/927] Compiling MLXLMCommon ModelContainer.swift
+[801/927] Compiling MLXLMCommon ModelFactory.swift
+[802/927] Compiling MLXLMCommon Gemma.swift
+[803/927] Compiling MLXLMCommon Module+Extensions.swift
+[804/927] Compiling MLXLMCommon PromptProcessingBatch.swift
+[805/927] Compiling MLXLMCommon QuantizedBatchKVCache.swift
+[806/927] Compiling MLXLMCommon AbstractModelRegistry.swift
+[807/927] Compiling MLXLMCommon PagedLayerCache.swift
+[808/927] Compiling MLXLMCommon PagedSequenceKV.swift
+[809/927] Compiling MLXLMCommon PrefixCacheV2.swift
+[810/927] Compiling MLXLMCommon SamplerV2.swift
+[811/927] Compiling MLXLMCommon SchedulerV2.swift
+[812/927] Compiling MLXLMCommon ContiguousKVBackend.swift
+[813/927] Compiling MLXLMCommon FullSequenceKV.swift
+[814/927] Compiling MLXLMCommon QuantizedSequenceKV.swift
+[815/927] Compiling MLXLMCommon WindowedSequenceKV.swift
+[816/927] Compiling HuggingFace HubClient.swift
+[817/927] Compiling HuggingFace Model.swift
+[818/927] Compiling HuggingFace Repo.swift
+[819/927] Compiling HuggingFace ResourceGroup.swift
+[820/927] Compiling HuggingFace Space.swift
+[821/927] Compiling HuggingFace Tags.swift
+[822/927] Compiling HuggingFace User.swift
+[823/927] Compiling HuggingFace ChatCompletion.swift
+[824/927] Compiling HuggingFace FeatureExtraction.swift
+[825/927] Compiling MLXLMCommon ToolCallProcessor.swift
+[826/927] Compiling MLXLMCommon ToolParameter.swift
+[827/927] Compiling MLXLMCommon Value.swift
+[828/927] Compiling MLXLMCommon UserInput.swift
+[829/927] Compiling MLXLMCommon SerialAccessContainer.swift
+[830/927] Compiling MLXLMCommon WiredMemoryPolicies.swift
+[831/927] Compiling MLXLMCommon WiredMemoryUtils.swift
+[832/927] Compiling MLXLMCommon resource_bundle_accessor.swift
+[833/927] Compiling HuggingFace Provider.swift
+[834/927] Compiling HuggingFace SpeechToText.swift
+[835/927] Compiling HuggingFace TextToImage.swift
+[836/927] Compiling HuggingFace CacheLocationProvider.swift
+[837/927] Compiling HuggingFace Data+Extensions.swift
+[838/927] Compiling HuggingFace JSONDecoder+Extensions.swift
+[839/927] Compiling HuggingFace URL+Extensions.swift
+[840/927] Compiling MLXLMCommon MLXHardwareInfo.swift
+[841/927] Emitting module MLXLMCommon
+[842/927] Compiling MLXLMCommon LogitsPipelineV2.swift
+[843/927] Compiling MLXLMCommon MultimodalV2.swift
+[844/927] Compiling MLXLMCommon OutputStreamV2.swift
+[845/927] Compiling MLXLMCommon PagedAttentionKernel.swift
+[846/927] Compiling MLXLMCommon PagedAttentionReference.swift
+[847/927] Compiling MLXLMCommon PagedBackendBenchmark.swift
+[848/927] Compiling MLXLMCommon PagedDecodeProfiler.swift
+[849/927] Compiling MLXLMCommon PagedKVBackend.swift
+[850/927] Compiling MLXLMCommon PagedKVPool.swift
+[851/927] Compiling MLXLMCommon BatchGenerator.swift
+[852/927] Compiling MLXLMCommon BatchKVCache.swift
+[853/927] Compiling MLXLMCommon Chat.swift
+[854/927] Compiling MLXLMCommon ChatSession.swift
+[855/927] Compiling MLXLMCommon CompilableBatchKVCache.swift
+[856/927] Compiling MLXLMCommon CompilableBatchRotatingKVCache.swift
+[857/927] Compiling MLXLMCommon CompilableKVCache.swift
+[858/927] Compiling MLXLMCommon CompilableRotatingKVCache.swift
+[859/927] Compiling MLXLMCommon CompiledDecode.swift
+[860/927] Compiling MLXLMCommon StepProfilerV2.swift
+[861/927] Compiling MLXLMCommon SteppableAdapterV2.swift
+[862/927] Compiling MLXLMCommon StopHoldback.swift
+[863/927] Compiling MLXLMCommon Downloader.swift
+[864/927] Compiling MLXLMCommon DynamicSlice.swift
+[865/927] Compiling MLXLMCommon Evaluate.swift
+[866/927] Compiling MLXLMCommon Encodable+toolResult.swift
+[867/927] Compiling MLXLMCommon JSONDecoder+JSON5.swift
+[868/984] Compiling MLXLLM LFM2.swift
+[869/984] Compiling MLXLLM Apertus.swift
+[870/984] Compiling MLXLLM BaichuanM1.swift
+[871/984] Compiling MLXLLM BailingMoe.swift
+[872/987] Compiling MLXLLM Bitnet.swift
+[873/987] Compiling MLXLLM Cohere.swift
+[874/987] Compiling MLXLLM LLMModel.swift
+[875/987] Compiling MLXLLM LLMModelFactory.swift
+[876/987] Compiling MLXLLM Gemma.swift
+[877/987] Compiling MLXLLM Gemma2.swift
+[878/987] Compiling MLXLLM Gemma3Text.swift
+[879/987] Compiling MLXLLM Mistral3Text.swift
+[880/987] Compiling MLXLLM FalconH1.swift
+[881/987] Compiling MLXLLM GLM4.swift
+[882/987] Compiling MLXLLM GLM4MOE.swift
+[883/987] Compiling MLXLLM GLM4MOELite.swift
+[884/987] Compiling MLXLLM MiMoV2Flash.swift
+[885/987] Compiling MLXLLM MiniCPM.swift
+[886/987] Compiling MLXLLM MiniMax.swift
+[887/987] Compiling MLXLLM Lora+Data.swift
+[888/987] Compiling MLXLLM LoraTrain.swift
+[889/987] Compiling MLXLLM AfMoE.swift
+[890/987] Compiling MLXLLM GatedDelta.swift
+[891/987] Compiling MLXLLM Olmo3.swift
+[892/987] Compiling MLXLLM OlmoE.swift
+[893/987] Compiling MLXLLM OpenELM.swift
+[894/987] Compiling MLXLLM Phi.swift
+[895/987] Compiling HuggingFace MultipartBuilder.swift
+[896/987] Compiling HuggingFace TokenProvider.swift
+[897/987] Compiling HuggingFace Value.swift
+[898/987] Compiling MLXLLM Qwen35.swift
+[899/987] Compiling MLXLLM Qwen35MTP.swift
+[900/987] Compiling MLXLLM Qwen35MoE.swift
+[901/987] Compiling MLXLLM Qwen3MoE.swift
+[906/991] Compiling MLXLLM NanoChat.swift
+[907/991] Compiling MLXLLM NemotronH.swift
+[908/991] Compiling MLXLLM Olmo2.swift
+[909/991] Compiling MLXLLM Phi3.swift
+[910/991] Compiling MLXLLM MiMo.swift
+[914/991] Compiling MLXLLM LFM2MoE.swift
+[915/991] Compiling MLXLLM Laguna.swift
+[916/991] Compiling MLXLLM Lille130m.swift
+[918/991] Compiling MLXLLM GPTOSS.swift
+[944/991] Emitting module MLXLLM
+[945/991] Compiling MLXLLM GraniteMoeHybrid.swift
+[946/991] Compiling MLXLLM Internlm2.swift
+[947/991] Compiling MLXLLM Jamba.swift
+[949/991] Emitting module HuggingFace
+[952/991] Compiling MLXLLM Gemma4Text.swift
+[953/991] Compiling MLXLLM Granite.swift
+[954/991] Compiling MLXLLM Qwen3Next.swift
+[955/991] Compiling MLXLLM SSM.swift
+[956/991] Compiling MLXLLM SmolLM3.swift
+[957/991] Compiling MLXLLM Starcoder2.swift
+[958/991] Compiling MLXLLM Exaone4.swift
+[962/991] Compiling MLXLLM DeepseekV3.swift
+[963/991] Compiling MLXLLM DeepseekV4.swift
+[964/991] Compiling MLXLLM DeepseekV4MTP.swift
+[965/991] Compiling MLXLLM Ernie4_5.swift
+[967/991] Compiling MLXLLM PhiMoE.swift
+[968/991] Compiling MLXLLM Qwen2.swift
+[969/991] Compiling MLXLLM Qwen3.swift
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/DeepseekV4.swift:758:27: warning: immutable value 'D' was never used; consider replacing with '_' or removing it [#no-usage]
+ 756 | 
+ 757 |     func callAsFunction(_ x: MLXArray, poolCache: PoolingCache?, offset: Int) -> MLXArray {
+ 758 |         let B = x.dim(0), D = x.dim(2)
+     |                           `- warning: immutable value 'D' was never used; consider replacing with '_' or removing it [#no-usage]
+ 759 |         let kv = wkv(x)    // [B, S, out_dim]
+ 760 |         let gate = wgate(x) // [B, S, out_dim]
+
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/DeepseekV4.swift:1401:9: warning: switch must be exhaustive
+1399 |         // Local scores: [B, H, L, localLen]
+1400 |         let localScores: MLXArray
+1401 |         switch localMask {
+     |         |- warning: switch must be exhaustive
+     |         `- note: add missing case: '.arrays(_)'
+1402 |         case .none, .causal:
+1403 |             localScores = qScaled.matmul(localKV.transposed(0, 1, 3, 2))
+
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/DeepseekV4.swift:1513:13: warning: variable 'h' was never mutated; consider changing to 'let' constant
+1511 |         }
+1512 | 
+1513 |         var h = hcPost(x: attnOut, residual: residual, post: postAttn, comb: combAttn)
+     |             `- warning: variable 'h' was never mutated; consider changing to 'let' constant
+1514 | 
+1515 |         // FFN sub-block
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/DeepseekV4.swift:758:27: warning: immutable value 'D' was never used; consider replacing with '_' or removing it [#no-usage]
+ 756 | 
+ 757 |     func callAsFunction(_ x: MLXArray, poolCache: PoolingCache?, offset: Int) -> MLXArray {
+ 758 |         let B = x.dim(0), D = x.dim(2)
+     |                           `- warning: immutable value 'D' was never used; consider replacing with '_' or removing it [#no-usage]
+ 759 |         let kv = wkv(x)    // [B, S, out_dim]
+ 760 |         let gate = wgate(x) // [B, S, out_dim]
+
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/DeepseekV4.swift:1401:9: warning: switch must be exhaustive
+1399 |         // Local scores: [B, H, L, localLen]
+1400 |         let localScores: MLXArray
+1401 |         switch localMask {
+     |         |- warning: switch must be exhaustive
+     |         `- note: add missing case: '.arrays(_)'
+1402 |         case .none, .causal:
+1403 |             localScores = qScaled.matmul(localKV.transposed(0, 1, 3, 2))
+
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/DeepseekV4.swift:1513:13: warning: variable 'h' was never mutated; consider changing to 'let' constant
+1511 |         }
+1512 | 
+1513 |         var h = hcPost(x: attnOut, residual: residual, post: postAttn, comb: combAttn)
+     |             `- warning: variable 'h' was never mutated; consider changing to 'let' constant
+1514 | 
+1515 |         // FFN sub-block
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/DeepseekV4.swift:758:27: warning: immutable value 'D' was never used; consider replacing with '_' or removing it [#no-usage]
+ 756 | 
+ 757 |     func callAsFunction(_ x: MLXArray, poolCache: PoolingCache?, offset: Int) -> MLXArray {
+ 758 |         let B = x.dim(0), D = x.dim(2)
+     |                           `- warning: immutable value 'D' was never used; consider replacing with '_' or removing it [#no-usage]
+ 759 |         let kv = wkv(x)    // [B, S, out_dim]
+ 760 |         let gate = wgate(x) // [B, S, out_dim]
+
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/DeepseekV4.swift:1401:9: warning: switch must be exhaustive
+1399 |         // Local scores: [B, H, L, localLen]
+1400 |         let localScores: MLXArray
+1401 |         switch localMask {
+     |         |- warning: switch must be exhaustive
+     |         `- note: add missing case: '.arrays(_)'
+1402 |         case .none, .causal:
+1403 |             localScores = qScaled.matmul(localKV.transposed(0, 1, 3, 2))
+
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/DeepseekV4.swift:1513:13: warning: variable 'h' was never mutated; consider changing to 'let' constant
+1511 |         }
+1512 | 
+1513 |         var h = hcPost(x: attnOut, residual: residual, post: postAttn, comb: combAttn)
+     |             `- warning: variable 'h' was never mutated; consider changing to 'let' constant
+1514 | 
+1515 |         // FFN sub-block
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/DeepseekV4.swift:758:27: warning: immutable value 'D' was never used; consider replacing with '_' or removing it [#no-usage]
+ 756 | 
+ 757 |     func callAsFunction(_ x: MLXArray, poolCache: PoolingCache?, offset: Int) -> MLXArray {
+ 758 |         let B = x.dim(0), D = x.dim(2)
+     |                           `- warning: immutable value 'D' was never used; consider replacing with '_' or removing it [#no-usage]
+ 759 |         let kv = wkv(x)    // [B, S, out_dim]
+ 760 |         let gate = wgate(x) // [B, S, out_dim]
+
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/DeepseekV4.swift:1401:9: warning: switch must be exhaustive
+1399 |         // Local scores: [B, H, L, localLen]
+1400 |         let localScores: MLXArray
+1401 |         switch localMask {
+     |         |- warning: switch must be exhaustive
+     |         `- note: add missing case: '.arrays(_)'
+1402 |         case .none, .causal:
+1403 |             localScores = qScaled.matmul(localKV.transposed(0, 1, 3, 2))
+
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/DeepseekV4.swift:1513:13: warning: variable 'h' was never mutated; consider changing to 'let' constant
+1511 |         }
+1512 | 
+1513 |         var h = hcPost(x: attnOut, residual: residual, post: postAttn, comb: combAttn)
+     |             `- warning: variable 'h' was never mutated; consider changing to 'let' constant
+1514 | 
+1515 |         // FFN sub-block
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/DeepseekV4.swift:758:27: warning: immutable value 'D' was never used; consider replacing with '_' or removing it [#no-usage]
+ 756 | 
+ 757 |     func callAsFunction(_ x: MLXArray, poolCache: PoolingCache?, offset: Int) -> MLXArray {
+ 758 |         let B = x.dim(0), D = x.dim(2)
+     |                           `- warning: immutable value 'D' was never used; consider replacing with '_' or removing it [#no-usage]
+ 759 |         let kv = wkv(x)    // [B, S, out_dim]
+ 760 |         let gate = wgate(x) // [B, S, out_dim]
+
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/DeepseekV4.swift:1401:9: warning: switch must be exhaustive
+1399 |         // Local scores: [B, H, L, localLen]
+1400 |         let localScores: MLXArray
+1401 |         switch localMask {
+     |         |- warning: switch must be exhaustive
+     |         `- note: add missing case: '.arrays(_)'
+1402 |         case .none, .causal:
+1403 |             localScores = qScaled.matmul(localKV.transposed(0, 1, 3, 2))
+
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/DeepseekV4.swift:1513:13: warning: variable 'h' was never mutated; consider changing to 'let' constant
+1511 |         }
+1512 | 
+1513 |         var h = hcPost(x: attnOut, residual: residual, post: postAttn, comb: combAttn)
+     |             `- warning: variable 'h' was never mutated; consider changing to 'let' constant
+1514 | 
+1515 |         // FFN sub-block
+[980/1001] Compiling MLXFastModel RuntimeWeightLoading.swift
+[985/1008] Compiling MLXFastModel RuntimeStartupMemoryPolicy.swift
+[986/1008] Compiling MLXFastModel MLXTensorBridge.swift
+[987/1008] Compiling MLXFastModel LagunaLmHeadPrune.swift
+[988/1008] Compiling MLXFastModel LagunaUpstreamEquivalence.swift
+[989/1008] Compiling MLXFastModel LagunaRuntimeWeights.swift
+[990/1008] Emitting module MLXFastModel
+[991/1008] Compiling MLXFastModel LagunaConfig.swift
+[992/1008] Compiling MLXFastModel DenseTensorStore.swift
+[993/1008] Compiling MLXFastModel LagunaRuntimeModel.swift
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Sources/MLXFastModel/LagunaRuntimeModel.swift:10832:17: warning: variable 'mergedSharedActivated' was never mutated; consider changing to 'let' constant
+10830 | 
+10831 | 
+10832 |             var mergedSharedActivated: MLXArray?
+      |                 `- warning: variable 'mergedSharedActivated' was never mutated; consider changing to 'let' constant
+10833 |             if lagunaFusedRoutedSwiGLUQMVEnabled,
+10834 |                 x.dtype == .bfloat16,
+[994/1008] Compiling Hub YYJSONParser.swift
+[995/1008] Compiling Hub resource_bundle_accessor.swift
+[996/1008] Compiling Hub Hub.swift
+[997/1008] Emitting module Hub
+[998/1008] Compiling Hub BinaryDistinct.swift
+[999/1008] Compiling Hub Config.swift
+[1000/1008] Compiling Hub HubApi.swift
+[1001/1021] Compiling Tokenizers PreTokenizer.swift
+[1002/1021] Compiling Tokenizers Tokenizer.swift
+[1003/1021] Compiling Tokenizers ByteEncoder.swift
+[1004/1021] Emitting module Tokenizers
+[1005/1021] Compiling Tokenizers Decoder.swift
+[1006/1021] Compiling Tokenizers PostProcessor.swift
+[1007/1021] Compiling Tokenizers String+PreTokenization.swift
+[1008/1021] Compiling Tokenizers TokenLattice.swift
+[1009/1021] Compiling Tokenizers UnigramTokenizer.swift
+[1010/1021] Compiling Tokenizers Normalizer.swift
+[1011/1021] Compiling Tokenizers Trie.swift
+[1012/1021] Compiling Tokenizers BertTokenizer.swift
+[1013/1021] Compiling Tokenizers BPETokenizer.swift
+[1014/1048] Compiling MLXFastHarness LagunaRuntimeCorrectness.swift
+[1015/1049] Compiling MLXFastHarness EditableSurfaceByteBudget.swift
+[1016/1049] Compiling MLXFastHarness LagunaRuntimeSupport.swift
+[1017/1049] Emitting module MLXFastHarness
+[1018/1049] Compiling MLXFastHarness BenchmarkSupport.swift
+[1019/1049] Compiling MLXFastHarness LagunaRuntimePreflight.swift
+[1020/1049] Compiling MLXFastHarness LagunaRuntime.swift
+[1021/1049] Compiling MLXFastHarness LagunaRuntimeCorrectnessCompare.swift
+[1022/1049] Compiling MLXFastRuntimeWorkerSupport TransformVerification.swift
+[1023/1049] Compiling MLXFastHarness LagunaCorrectness.swift
+[1024/1049] Compiling MLXFastHarness LagunaRuntimeBenchmark.swift
+[1025/1049] Compiling MLXFastHarness TransformVerification.swift
+[1026/1049] Compiling MLXFastHarness VendoredMetalFingerprint.swift
+[1027/1049] Compiling MLXFastHarness LagunaRuntimeGPQA.swift
+[1028/1049] Compiling MLXFastHarness LagunaRuntimeLocalIterate.swift
+[1029/1049] Compiling MLXFastHarness LagunaRuntimeWorker.swift
+[1030/1051] Compiling MLXFastRuntimeWorkerSupport LagunaRuntimeSupport.swift
+[1031/1051] Compiling MLXFastRuntimeWorkerSupport LagunaRuntimeLocalIterate.swift
+[1032/1051] Compiling MLXFastRuntimeWorkerSupport LagunaRuntimePreflight.swift
+[1033/1051] Compiling MLXFastRuntimeWorkerSupport LagunaRuntimeGPQA.swift
+[1034/1051] Compiling MLXFastRuntimeWorkerSupport LagunaRuntimeCorrectnessCompare.swift
+[1035/1051] Compiling MLXFastRuntimeWorkerSupport LagunaCorrectness.swift
+[1036/1051] Compiling MLXFastRuntimeWorkerSupport LagunaRuntimeBenchmark.swift
+[1037/1051] Compiling MLXFastRuntimeWorkerSupport LagunaRuntimeCorrectness.swift
+[1038/1051] Compiling MLXFastRuntimeWorkerSupport LagunaRuntime.swift
+[1039/1051] Emitting module MLXFastRuntimeWorkerSupport
+[1040/1051] Compiling MLXFastRuntimeWorkerSupport LagunaRuntimeWorker.swift
+[1041/1051] Compiling MLXFastRuntimeWorkerSupport BenchmarkSupport.swift
+[1042/1083] Compiling MLXFastRuntimeWorkerCLI main.swift
+[1043/1083] Emitting module MLXFastRuntimeWorkerCLI
+[1043/1083] Write Objects.LinkFileList
+[1045/1083] Emitting module MLXFastCLI
+[1046/1083] Compiling MLXFastCLI main.swift
+[1046/1083] Write Objects.LinkFileList
+[1047/1083] Linking mlxfast-swift
+[1048/1083] Applying mlxfast-swift
+[1049/1083] Linking mlxfast-runtime-worker
+[1050/1083] Applying mlxfast-runtime-worker
+[1052/1083] Emitting module MLXFastTests
+[1053/1085] Compiling MLXFastTests DefaultTrackTests.swift
+[1054/1085] Compiling MLXFastTests DenseTensorStoreTests.swift
+[1055/1085] Compiling MLXFastTests GoldenTests.swift
+[1056/1085] Compiling MLXFastTests RuntimeWorkerSupportTests.swift
+[1057/1085] Compiling MLXFastTests SafetensorsTests.swift
+[1058/1085] Compiling MLXFastTests RankedWorkflowIsolationTests.swift
+[1059/1085] Compiling MLXFastTests RuntimeStartupMemoryPolicyTests.swift
+[1060/1085] Compiling MLXFastTests NAXSplitKGEMMTests.swift
+[1061/1085] Compiling MLXFastTests NGramSelfSimilarityTests.swift
+[1062/1085] Compiling MLXFastTests LagunaConfigTests.swift
+[1063/1085] Compiling MLXFastTests LagunaCorrectnessTests.swift
+[1064/1085] Compiling MLXFastTests ScoreTests.swift
+[1065/1085] Compiling MLXFastTests SenpaiOperationalContractTests.swift
+[1066/1085] Compiling MLXFastTests TensorDataTests.swift
+[1067/1085] Compiling MLXFastTests TimedDecodePromptTests.swift
+[1068/1085] Compiling MLXFastTests LagunaArtifactContractTests.swift
+[1069/1085] Compiling MLXFastTests LagunaArtifactFixtureSupport.swift
+[1070/1085] Compiling MLXFastTests SetupScriptTests.swift
+[1071/1085] Compiling MLXFastTests ShellGapRegressionTests.swift
+[1072/1085] Compiling MLXFastTests LagunaNVFP4KernelTests.swift
+[1073/1085] Compiling MLXFastTests MLXTensorBridgeTests.swift
+[1074/1085] Compiling MLXFastTests NVFP4QuantizedMMTests.swift
+[1075/1085] Compiling MLXFastTests ParentToolSandboxTests.swift
+[1076/1085] Compiling MLXFastTests BenchmarkSupportTests.swift
+[1077/1085] Compiling MLXFastTests BenchmarkWindowFreezeTests.swift
+[1078/1085] Compiling MLXFastTests CheckpointIndexTests.swift
+[1079/1085] Compiling MLXFastTests TransformTests.swift
+[1080/1085] Compiling MLXFastTests TrustedWorkerProtocolTests.swift
+[1081/1085] Compiling MLXFastTests AcceptanceBandTests.swift
+[1082/1085] Compiling MLXFastTests BenchmarkSafetyTests.swift
+[1083/1085] Compiling MLXFastTests BenchmarkScriptTests.swift
+[1084/1087] Compiling mlxfast_challenge_devPackageTests runner.swift
+[1085/1087] Emitting module mlxfast_challenge_devPackageTests
+[1085/1087] Write Objects.LinkFileList
+[1086/1087] Linking mlxfast-challenge-devPackageTests
+Build complete! (63.88s)
+Test Suite 'Selected tests' started at 2026-08-11 00:16:43.554.
+Test Suite 'mlxfast-challenge-devPackageTests.xctest' started at 2026-08-11 00:16:43.555.
+Test Suite 'mlxfast-challenge-devPackageTests.xctest' passed at 2026-08-11 00:16:43.555.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-08-11 00:16:43.555.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+◇ Test run started.
+↳ Testing Library Version: 1902
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Test lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled() started.
+MLX error: Failed to load the default metallib. library not found library not found library not found library not found  at /Users/ec2-user/.senpai/native/mlxfast-maple-20260810-expansion/roles/student-maple-edward/workspace/target/Vendor/mlx-swift/Source/Cmlx/mlx-c/mlx/c/array.cpp:232
+[0/3] Write swift-version--58304C5D6DBC2206.txt
+[0/1] Planning build
+[1/1] Compiling plugin CudaBuild
+[2/2] Compiling plugin GenerateManual
+[3/3] Compiling plugin GenerateDoccReference
+Building for debugging...
+[3/9] Write swift-version--58304C5D6DBC2206.txt
+Build complete! (3.81s)
+Test Suite 'Selected tests' started at 2026-08-11 00:16:50.240.
+Test Suite 'mlxfast-challenge-devPackageTests.xctest' started at 2026-08-11 00:16:50.241.
+Test Suite 'mlxfast-challenge-devPackageTests.xctest' passed at 2026-08-11 00:16:50.241.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-08-11 00:16:50.241.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+◇ Test run started.
+↳ Testing Library Version: 1902
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Test lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled() started.
+{
+  "decodeTokenCount" : 8,
+  "promptTokenCount" : 512,
+  "steps" : [
+    {
+      "label" : "prefill",
+      "maximumAbsoluteLogitError" : 0.125,
+      "meanAbsoluteLogitError" : 0.011933609,
+      "runtimeToken" : 5991,
+      "upstreamToken" : 5991
+    },
+    {
+      "label" : "decode-0",
+      "maximumAbsoluteLogitError" : 0,
+      "meanAbsoluteLogitError" : 0,
+      "runtimeToken" : 509,
+      "upstreamToken" : 509
+    },
+    {
+      "label" : "decode-1",
+      "maximumAbsoluteLogitError" : 0,
+      "meanAbsoluteLogitError" : 0,
+      "runtimeToken" : 902,
+      "upstreamToken" : 902
+    },
+    {
+      "label" : "decode-2",
+      "maximumAbsoluteLogitError" : 0,
+      "meanAbsoluteLogitError" : 0,
+      "runtimeToken" : 5991,
+      "upstreamToken" : 5991
+    },
+    {
+      "label" : "decode-3",
+      "maximumAbsoluteLogitError" : 0,
+      "meanAbsoluteLogitError" : 0,
+      "runtimeToken" : 509,
+      "upstreamToken" : 509
+    },
+    {
+      "label" : "decode-4",
+      "maximumAbsoluteLogitError" : 0,
+      "meanAbsoluteLogitError" : 0,
+      "runtimeToken" : 902,
+      "upstreamToken" : 902
+    },
+    {
+      "label" : "decode-5",
+      "maximumAbsoluteLogitError" : 0,
+      "meanAbsoluteLogitError" : 0,
+      "runtimeToken" : 5991,
+      "upstreamToken" : 5991
+    },
+    {
+      "label" : "decode-6",
+      "maximumAbsoluteLogitError" : 0,
+      "meanAbsoluteLogitError" : 0,
+      "runtimeToken" : 509,
+      "upstreamToken" : 509
+    },
+    {
+      "label" : "decode-7",
+      "maximumAbsoluteLogitError" : 0,
+      "meanAbsoluteLogitError" : 0,
+      "runtimeToken" : 902,
+      "upstreamToken" : 902
+    }
+  ]
+}
+✘ Test lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled() recorded an issue at LagunaCorrectnessTests.swift:249:5: Expectation failed: (report → LagunaUpstreamEquivalenceReport(promptTokenCount: 512, decodeTokenCount: 8, steps: [MLXFastModel.LagunaUpstreamEquivalenceStep(label: "prefill", maximumAbsoluteLogitError: 0.125, meanAbsoluteLogitError: 0.011933609, runtimeToken: 5991, upstreamToken: 5991), MLXFastModel.LagunaUpstreamEquivalenceStep(label: "decode-0", maximumAbsoluteLogitError: 0.0, meanAbsoluteLogitError: 0.0, runtimeToken: 509, upstreamToken: 509), MLXFastModel.LagunaUpstreamEquivalenceStep(label: "decode-1", maximumAbsoluteLogitError: 0.0, meanAbsoluteLogitError: 0.0, runtimeToken: 902, upstreamToken: 902), MLXFastModel.LagunaUpstreamEquivalenceStep(label: "decode-2", maximumAbsoluteLogitError: 0.0, meanAbsoluteLogitError: 0.0, runtimeToken: 5991, upstreamToken: 5991), MLXFastModel.LagunaUpstreamEquivalenceStep(label: "decode-3", maximumAbsoluteLogitError: 0.0, meanAbsoluteLogitError: 0.0, runtimeToken: 509, upstreamToken: 509), MLXFastModel.LagunaUpstreamEquivalenceStep(label: "decode-4", maximumAbsoluteLogitError: 0.0, meanAbsoluteLogitError: 0.0, runtimeToken: 902, upstreamToken: 902), MLXFastModel.LagunaUpstreamEquivalenceStep(label: "decode-5", maximumAbsoluteLogitError: 0.0, meanAbsoluteLogitError: 0.0, runtimeToken: 5991, upstreamToken: 5991), MLXFastModel.LagunaUpstreamEquivalenceStep(label: "decode-6", maximumAbsoluteLogitError: 0.0, meanAbsoluteLogitError: 0.0, runtimeToken: 509, upstreamToken: 509), MLXFastModel.LagunaUpstreamEquivalenceStep(label: "decode-7", maximumAbsoluteLogitError: 0.0, meanAbsoluteLogitError: 0.0, runtimeToken: 902, upstreamToken: 902)])).passes(maximumAbsoluteLogitError: tolerance → 0.0)
+✘ Test lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled() failed after 23.199 seconds with 1 issue.
+✘ Test run with 1 test in 0 suites failed after 23.199 seconds with 1 issue.
+EQUIVALENCE_EXACT_STEPS=8
+EQUIVALENCE_EXIT=1
