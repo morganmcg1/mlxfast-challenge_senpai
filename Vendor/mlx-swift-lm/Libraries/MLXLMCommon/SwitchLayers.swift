@@ -246,39 +246,20 @@ private let routeFusedScatterEnabled =
 
 private let routeFusedScatterTopK = 8
 
-private final class F322RouteCaptureState: @unchecked Sendable {
-    private let lock = NSLock()
-    private var didCapture = false
-
-    func take() -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        guard !didCapture else { return false }
-        didCapture = true
-        return true
-    }
-}
-
-private let f322RouteCaptureState = F322RouteCaptureState()
-
 private func makeRouteFusedScatterKernel(
-    expertBoundsSidecar: Bool,
-    unorderedScatter: Bool = false
+    expertBoundsSidecar: Bool
 ) -> MLXFast.MLXFastKernel {
     let m = routeFusedScatterTopK
     let expertBoundsValue = expertBoundsSidecar ? "true" : "false"
-    let unorderedScatterValue = unorderedScatter ? "true" : "false"
     let expertBoundsSuffix = expertBoundsSidecar ? "_eb_1" : ""
-    let unorderedScatterSuffix = unorderedScatter ? "_unordered_1" : ""
     return MLXFast.metalKernel(
-        name: "mlx_lm_route_csort_scatter_fused_m\(m)_u32_v5\(expertBoundsSuffix)\(unorderedScatterSuffix)",
+        name: "mlx_lm_route_csort_scatter_fused_m\(m)_u32_v5\(expertBoundsSuffix)",
         inputNames: ["keys"],
         outputNames: ["row_order", "sorted_keys", "inverse_order"],
         source: """
             constexpr uint TILE = \(routeSortTile);
             constexpr uint M = \(m);
             constexpr bool EXPERT_BOUNDS_SIDECAR = \(expertBoundsValue);
-            constexpr bool UNORDERED_SCATTER = \(unorderedScatterValue);
             constexpr uint EXPERT_BOUNDS_MARKER_WORDS = 16;
             constexpr uint SORTED_KEYS_OFFSET =
                 EXPERT_BOUNDS_SIDECAR ? EXPERT_BOUNDS_MARKER_WORDS : 0;
@@ -367,26 +348,8 @@ private func makeRouteFusedScatterKernel(
                 simd_base += simd_totals[s];
             }
             uint global_base = simd_base + lane_excl;
-            uint tile_base = atomic_load_explicit(
-                &tg_before[k], memory_order_relaxed);
-            if (UNORDERED_SCATTER) {
-                threadgroup atomic_uint tg_cursor[256];
-                atomic_store_explicit(
-                    &tg_cursor[k], global_base + tile_base,
-                    memory_order_relaxed);
-                threadgroup_barrier(mem_flags::mem_threadgroup);
-                if (k < TILE) {
-                    uint idx = t * TILE + k;
-                    uint key = keys[idx];
-                    uint unordered_off = atomic_fetch_add_explicit(
-                        &tg_cursor[key], 1u, memory_order_relaxed);
-                    row_order[unordered_off] = idx / M;
-                    sorted_keys[SORTED_KEYS_OFFSET + unordered_off] = key;
-                    inverse_order[idx] = unordered_off;
-                }
-                return;
-            }
-            uint off = global_base + tile_base;
+            uint off = global_base +
+                atomic_load_explicit(&tg_before[k], memory_order_relaxed);
             for (uint i = 0; i < TILE; ++i) {
                 uint idx = t * TILE + i;
                 if (keys[idx] == k) {
@@ -403,30 +366,24 @@ private func makeRouteFusedScatterKernel(
 
 private let routeFusedScatterKernel = makeRouteFusedScatterKernel(
     expertBoundsSidecar: false)
-private let routeFusedScatterUnorderedKernel = makeRouteFusedScatterKernel(
-    expertBoundsSidecar: false, unorderedScatter: true)
 private let routeFusedScatterExpertBoundsKernel = makeRouteFusedScatterKernel(
     expertBoundsSidecar: true)
 
 private func routeCountingSortFused(
-    _ indices: MLXArray,
-    m: Int,
-    expertBoundsSidecar: Bool,
-    unorderedScatter: Bool = false
+    _ indices: MLXArray, m: Int, expertBoundsSidecar: Bool
 ) -> (rowOrder: MLXArray, sortedKeys: MLXArray, inverseOrder: MLXArray)? {
     let n = indices.size
     guard routeFusedScatterEnabled, routeCountingSortEnabled,
         indices.dtype == .uint32,
         n > 0, n % routeSortTile == 0,
         m == routeFusedScatterTopK,
-        !expertBoundsSidecar || n > 256,
-        !expertBoundsSidecar || !unorderedScatter
+        !expertBoundsSidecar || n > 256
     else { return nil }
     let tiles = n / routeSortTile
     let sortedKeysMarkerWords = expertBoundsSidecar ? 16 : 0
     let kernel = expertBoundsSidecar
         ? routeFusedScatterExpertBoundsKernel
-        : unorderedScatter ? routeFusedScatterUnorderedKernel : routeFusedScatterKernel
+        : routeFusedScatterKernel
     let outputs = kernel(
         [indices],
         grid: (expertBoundsSidecar ? 256 : tiles * 256, 1, 1),
@@ -445,46 +402,12 @@ private func routeCountingSortFused(
     return (outputs[0], sortedKeys, outputs[2])
 }
 
-enum F322RouteSorterTimingArm: String, CaseIterable {
-    case stable32
-    case unordered32
-    case persistent1
-}
-
-func f322RouteSorterTiming(
-    _ indices: MLXArray, arm: F322RouteSorterTimingArm
-) -> (rowOrder: MLXArray, sortedKeys: MLXArray, inverseOrder: MLXArray) {
-    let indices = indices.flattened()
-    switch arm {
-    case .stable32:
-        return routeCountingSortFused(
-            indices, m: routeFusedScatterTopK, expertBoundsSidecar: false)!
-    case .unordered32:
-        return routeCountingSortFused(
-            indices,
-            m: routeFusedScatterTopK,
-            expertBoundsSidecar: false,
-            unorderedScatter: true)!
-    case .persistent1:
-        return routeCountingSortFused(
-            indices, m: routeFusedScatterTopK, expertBoundsSidecar: true)!
-    }
-}
-
 public func gatherSort(
     x: MLXArray,
     indices: MLXArray,
     expertBoundsSidecar: Bool = false
 ) -> (MLXArray, MLXArray, MLXArray) {
     let m = indices.dim(-1)
-    if indices.size == 4096,
-        ProcessInfo.processInfo.environment["DARKBLOOM_F322_ROUTE_KEYS_CAPTURE"] == "1",
-        f322RouteCaptureState.take()
-    {
-        let bytes = indices.asArray(UInt32.self).map { UInt8(truncatingIfNeeded: $0) }
-        let encoded = Data(bytes).base64EncodedString()
-        FileHandle.standardError.write(Data("F322_ROUTE_KEYS_BASE64=\(encoded)\n".utf8))
-    }
     let indices = indices.flattened()
     if let fused = routeCountingSortFused(
         indices, m: m, expertBoundsSidecar: expertBoundsSidecar
