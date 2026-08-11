@@ -1,14 +1,19 @@
 # R109 / PR #682 — terminal result (maple-nezuko)
 
-SENPAI-RESULT: {"terminal":true,"status":"complete","pending_arms":false,"wandb_run_ids":["ucuwf20o","wc4nbji0"],"primary_metric":{"name":"decode_us_per_step_delta_vs_control","available":true,"value":-51.73},"test_metric":{"name":"passed_correctness","available":true,"value":1}}
+SENPAI-RESULT: {"terminal":true,"status":"complete","pending_arms":false,"wandb_run_ids":["ucuwf20o","wc4nbji0"],"primary_metric":{"name":"decode_us_per_step","available":true,"value":8309.52},"test_metric":{"name":"passed_correctness","available":true,"value":1}}
 
 `status: complete` means the report is complete, not that the candidate won —
-the decision below is **dead hypothesis**. `primary_metric` is the arm that
-actually tested the hypothesis (mode C, the only arm that deletes the 41
-`rmsbfloat16` dispatches): **−51.73 µs/step, i.e. slower than the shipped
-control**, minimise-direction. No same-host paired *score* estimate is reported
-because the shipped default is unchanged behaviour, so there is no candidate to
-score.
+the decision below is **dead hypothesis**. `primary_metric` is reported as
+**absolute decode µs/step, minimise-direction**, for the arm that actually
+tested the hypothesis (mode C, the only arm that deletes the 41 `rmsbfloat16`
+dispatches): shipped control **8257.79** → candidate **8309.52 µs/step**, i.e.
+**+51.73 µs/step slower** (b4, 19 slots). It is quoted in absolute form on
+purpose: a metric named "delta vs control" plus a minimise direction reads as
+"more negative is better", which would inverse-report this result. Elsewhere in
+this document the sign convention is stated explicitly as *positive = candidate
+faster*, so the same finding appears there as **−51.73**. No same-host paired
+*score* estimate is reported because the shipped default is unchanged behaviour,
+so there is no candidate to score.
 
 - **Student / PR:** maple-nezuko / #682, assignment
   `maple-r109-b-router-hybrid-selector`, revision `r109-b-rev2`
