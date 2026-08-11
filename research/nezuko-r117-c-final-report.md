@@ -26,12 +26,12 @@ Host: Apple M4 Pro, 20 GPU cores, 48 GiB. All levels are `--local-submit`, 1023 
 | F4 | r94 decode-residue ledger byte overcount | correction to another student's artefact | proven, arithmetic |
 | F5 | order artefacts land in the **intercept**, not the slope, on a rotation design | methodological | proven by self-test |
 | F6 | byte→time transfer τ = **+0.780 [+0.727, +0.833]** (honest band [0.73, 1.08]) | reusable calibration | measured, 35 runs |
-| F7 | o_proj geometry `rps 4→2`: **−79.4 µs/token = −0.885 % decode** | **positive, LANDED**; byte model falsified *by sign* (occupancy-limited, not bandwidth-limited) | proven, CI95 [−87.8, −71.1] excludes 0, 8/8 blocks, control covers 0 |
+| F7 | o_proj geometry `rps 4→2`: **−79.4 µs/token = −0.885 % decode** | **positive, LANDED**; byte model falsified *by sign* (occupancy-limited, not bandwidth-limited) | **M4-proven, M5-pending**: CI95 [−87.8, −71.1] excludes 0, 8/8 blocks, control covers 0, single golden across 24+1 runs — but every second of it is M4 Pro |
 | F8 | `sliding_fused_attn_ring_v1` dispatches **32 threadgroups on 20 cores** | hand-off, static + profile evidence | proven by dispatch dump, unmeasured |
 
 ### 0b. Corrections log — things I published and then had to take back
 
-Six of them. I am listing them together, in one place, because a campaign that only ever
+Eight of them. I am listing them together, in one place, because a campaign that only ever
 publishes numbers that survive is a campaign that is not checking its own numbers.
 
 | # | what was wrong | direction of the error | where |
@@ -42,6 +42,8 @@ publishes numbers that survive is a campaign that is not checking its own number
 | C4 | **"o_proj runs at 90.9 % of peak bandwidth, so there is headroom in its bytes."** The Stage-1 pre-flight falsified this *by sign*: removing 157 MB/step made o_proj **slower**, adding 944 MB/step made it **faster**. | this one was in the flattering direction — it was the premise of my own Stage-1 arm, and the data killed it | §5.2 |
 | C5 | **"~150 affected o_proj calls per step"** — taken from an advisory critique I commissioned and repeated without checking. The true blast radius is **40 calls/step** (30 sliding @ 64 heads + 10 full @ 48 heads) at 6.3–8.4 MB each. | neutral for the headline number (the 314.6 MB ledger was always computed per-layer and is unchanged) but **strengthens** attribution: one kernel, not a diffuse family | §5.5 |
 | C6 | **"the shipped geometry leaves 128 threadgroups and `rps=2` refills it to 256."** Off by exactly 2×. `tiles = outVec / (simdgroups × rowsPerSimdgroup)` = 2048/8 = **256** for the reference, **512** for `rps=2`. | against me in the sense that the reference is *less* starved than I claimed, so the occupancy story had to be re-argued on simdgroups-per-core rather than a bare threadgroup count | §5.4, §5.5 |
+| C7 | **C6 was applied to the prose but not to the §5.4 design table, the knob's doc comment, or the "longest wall clock in the array (167 s)" claim** (the array maximum is `C` block 5 at 169 s). Three stale artefacts of my own correction, found by a commissioned red-team pass, not by me. | neutral arithmetically; against me procedurally — a corrections log is worthless if the correction is not propagated | §5.4, `LagunaOProjGeometry.swift` |
+| C8 | **§5.6's headroom arithmetic was priced from a re-derived 354 MB/step DRAM ledger on *stock* scale planes**, which is incoherent with the shipped pairwise tree: it implies ~254 GB/s achieved next to a quoted 90.9 %, and leaves ~39 µs of headroom — *less than the 79.4 µs win it was supposed to justify*. Withdrawn; re-based on Stage 0 §0e's own published 76.5 µs (sibling parity) / 153.6 µs (peak). | **strongly against me**: the version I first wrote was self-refuting. The re-based version is also *better* evidence, because 79.4 µs matches a pre-ladder Stage-0 figure to 4 % | §5.6 |
 
 They do not all point the same way, which is the point. **C1 and C4 cut against me**: C1 made
 the surviving plane bigger than I first claimed (more nominal headroom, so a weaker floor
@@ -311,11 +313,15 @@ the geometric outlier of the decode GEMV pool: `results_per_simdgroup = 4`,
 ### 5.1 The knob
 
 New file `Sources/MLXFastModel/LagunaOProjGeometry.swift` (edward's territory untouched)
-exposes `DARKBLOOM_OPROJ_ROWS_PER_SIMDGROUP ∈ {1,2,4,8,16}` (default 4 = shipped) and
-`DARKBLOOM_OPROJ_SIMDGROUPS ∈ {2,4}` (default 2 = shipped), plus 12 anchored edits in
-`LagunaRuntimeModel.swift` that are **inert at default gate values** — the kernel-name
-suffix is empty at `rps=4, ns=2`, so every shipped name and every atlas string built
-from it is unchanged. The suffix exists at all because of **rule 33**: MLX caches
+exposes `DARKBLOOM_OPROJ_ROWS_PER_SIMDGROUP ∈ {1,2,4,8,16}` and
+`DARKBLOOM_OPROJ_SIMDGROUPS ∈ {2,4}`, plus 12 anchored edits in
+`LagunaRuntimeModel.swift`. The knob shipped **inert** — fallbacks `rps=4, ns=2`,
+empty kernel-name suffix, every shipped atlas string unchanged — for the whole
+measurement phase. §5.5 records the landing: the `rps` fallback is now **2**, so
+those 12 edits are live by default and the dispatch emits `_rps2ns2`. The suffix
+predicate is deliberately left pinned to `rps==4 && ns==2` so that the landed
+default emits the same *compiled pipeline* the certified `R2` arm measured, not
+merely the same source. The suffix exists at all because of **rule 33**: MLX caches
 compiled pipelines by function name, and a geometry sweep whose arms share one name
 silently measures the first-built geometry every time.
 
@@ -392,9 +398,12 @@ Three arms, blocked and interleaved, one `--local-submit` binary, env-gated:
 
 | arm | gate | geometry | threadgroups | role |
 |---|---|---|---|---|
-| `C` | *(none)* | shipped `rps=4, ns=2` | 128 | reference |
-| `G4` | `DARKBLOOM_OPROJ_ROWS_PER_SIMDGROUP=4` | `rps=4, ns=2` | 128 | **byte-identical A/A control** |
-| `R2` | `DARKBLOOM_OPROJ_ROWS_PER_SIMDGROUP=2` | `rps=2, ns=2` | 256 | candidate |
+| `C` | *(none)* | shipped `rps=4, ns=2` | 256 | reference |
+| `G4` | `DARKBLOOM_OPROJ_ROWS_PER_SIMDGROUP=4` | `rps=4, ns=2` | 256 | **byte-identical A/A control** |
+| `R2` | `DARKBLOOM_OPROJ_ROWS_PER_SIMDGROUP=2` | `rps=2, ns=2` | 512 | candidate |
+
+(Threadgroup counts per correction **C6**; an earlier revision of this table
+carried the pre-C6 figures, halved by 2×.)
 
 `G4` sets the env var to the value the fallback already returns, so it compiles
 and runs the *same* kernel as `C`. It is the negative control the campaign rule
@@ -426,12 +435,30 @@ prefill `d = +7.231 µs` CI95 [−8.608, +23.070] (neutral), position OLS slope
 
 The control's interval covers zero but is wide (±24.9 µs) because of one outlier:
 `G4` block 4 read 8896.071 µs, ~68 µs below its other seven runs and the longest
-wall clock in the array (167 s). Dropping it puts `G4 − C` at +1.86 µs. I am
+wall clock *within the `G4` arm* (167 s; the array maximum is `C` block 5 at
+169 s — an earlier revision of this sentence wrongly called 167 s the array
+maximum). Dropping it puts `G4 − C` at +1.86 µs. I am
 **not** dropping it — it was not pre-registered as excludable — but I record that
 the control passes both with it (p = 0.727) and without it, and that its presence
-makes the `R2 − G4` contrast *conservative* (−67.3 µs) rather than flattering.
+makes the `R2 − G4` contrast *conservative* rather than flattering.
 This is why `C`, not `G4`, is the reference: `C` is the ungated shipped path and
 has sd 4.0 µs.
+
+**The pre-registered ship statistic.** Amendment 14 §14.4–14.5 pre-committed the
+ship recommendation to the bootstrap CI of the **block median of `R2 − G4`**, not
+to `R2 − C`. That statistic was computed and it clears the bar, so nothing here
+rests on the post hoc reference switch:
+
+| pre-registered statistic | value |
+|---|---|
+| per-block `R2 − G4` (µs/tok) | −71.4, −66.5, −88.4, −12.0, −67.9, −93.2, −71.9, −97.3 |
+| block median | **−71.670** |
+| bootstrap CI95 on the median (2·10⁵ resamples, seed 20260811) | **[−93.18, −66.49]** — excludes 0 |
+| blocks negative | **8/8** |
+
+`R2 − C` is reported as the headline only because `C` is the ungated shipped path
+with 7× lower dispersion; both contrasts exclude zero, agree in sign, and agree in
+magnitude to within 11 %.
 
 **Out-of-sample check.** Amendment 12 fitted the occupancy+bandwidth form on the
 pre-flight singles *before* `R2` was ever run and predicted **−66.8 µs/step**.
@@ -456,7 +483,10 @@ pipeline the `R2` arm measured, not merely the same source.
 (`research/data/nezuko-r117-stage1-landed-default-verify.log`):
 decode **8884.87 µs/token**, inside the `R2` range [8876.1, 8908.7] and below
 *every one* of the eight `C` observations (min 8965.34); `passed_correctness:
-true`, `passed: true`, golden `f49e4c2c…`, decode speedup 1.56×.
+true`, `passed: true`, golden `f49e4c2c…`. (The harness also prints
+`decode_speedup 1.56×`; that is the whole frontier tree against the *pinned*
+baseline, not this change, and it is not evidence for F7. F7's effect is the
+1.0089× paired contrast above.)
 
 *(Local `prefill_speedup` is 0.326 and fails its floor here, but it does so
 identically on the untouched `C` arm — this M4 Pro reports GPU generation 16 and
@@ -534,15 +564,32 @@ work removal over "cosmetic launch-count or occupancy changes". I take that
 seriously; here is why I still think this one is different, and what would show
 me wrong.
 
-*The premise is measurable, and I measured it.* o_proj DRAM traffic is
-30 × (8.389 + 1.049) + 10 × (6.291 + 0.786) = **354 MB/step**, which at this
-host's 256.7 GB/s asymptote is ~1.38 ms of an 8.97 ms step. Stage 0 measured
-this family running **9.1 % (h64) and 16.6 % (h48) below** that asymptote. So
-the kernel is *not* saturated — the briefing's "bandwidth-bound, nothing left to
-win" case is the case where that shortfall is ~0, and here it demonstrably is
-not. The 79.4 µs Stage-1 win is **5.8 pp of that already-measured shortfall**,
-leaving ~3–11 pp unclaimed. This is recovery of a quantified deficit, not a
-cosmetic launch-count change.
+*The premise is measurable, I measured it in Stage 0, and Stage 0 sized this
+exact win before the ladder existed.* On the shipped pairwise byte base,
+`research/nezuko-r117-stage0-attn-byte-floor.md` §0e (lines 259–277) put
+`oproj_h64` at **90.9 %** and `oproj_h48` at **83.4 %** of the host's 256.7 GB/s
+asymptote, against `qkv_h64` at 94.2 %/241.9 GB/s, and published the resulting
+headroom in µs/step:
+
+| Stage-0 scenario (pre-ladder) | µs/step recoverable | % decode |
+|---|---|---|
+| o_proj merely reaches its **sibling** `qkv_h64`'s 241.9 GB/s | **76.5** | 0.643 % |
+| o_proj reaches the 256.7 GB/s **peak** | 153.6 | 1.291 % |
+
+Stage 1 then measured **−79.4 µs/step**. That is the sibling-parity figure to
+within 4 %, and 52 % of the full-peak figure — i.e. the win lands inside a
+headroom envelope computed independently, from bytes and achieved bandwidth,
+before any geometry was run. So the briefing's "bandwidth-bound, nothing left to
+win" case is the case where that headroom is ~0, and here it demonstrably was
+not. This is recovery of a pre-quantified deficit, not a cosmetic launch-count
+change.
+
+*(An earlier revision of this paragraph priced the headroom from a re-derived
+354 MB/step DRAM ledger built on **stock** scale planes. That ledger is
+incoherent with the shipped pairwise tree — it implies ~254 GB/s achieved
+alongside a quoted 90.9 %, and leaves only ~39 µs of headroom, less than the
+measured win. It is withdrawn in favour of Stage 0's own published figures
+above. The qualitative conclusion is unchanged and now arithmetically closes.)*
 
 *It is also not a repeat of the two prior o_proj negatives.* PR #607 staged 512
 BF16 pre-activated gate products in threadgroup memory and **explicitly
