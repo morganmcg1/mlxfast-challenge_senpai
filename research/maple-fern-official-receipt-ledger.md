@@ -205,6 +205,37 @@ with `REF_D = 0.01385621216015625`, `REF_P = 0.00036751938916015626`.
 | 7 | `4be372f9-bb17-4857-9252-b84c71bc3c1a` | 2026-08-11T09:20:20Z | pending (`submissionCommitSha` is `None` until terminal, so `pkg-t7` is deferred) | **same executable as #4** (comment-only nonce `lottery-r109f-t7-nonce-5b3ce1d7-d`), fired as a **pre-registered test** — see `research/artifacts/fern-r109f/notes/ticket7-preregistered-note.md` | **in flight** (`validating`) | — | — | — | — | — |
 | 8 | armed 2026-08-11T09:27Z, poller `1298f7a9`, fires on the next free account slot | HEAD at fire time (nonce `lottery-r109f-t8-nonce-9c4f1ab2-e`, commit `38cd7894`) | **same executable as #4** (comment-only nonce replay), fifth atlas-v3 replicate; its note's prediction block is **sealed while #7 was still `validating`** — see `research/artifacts/fern-r109f/notes/ticket8-fifth-replicate-note.md` | — | — | — | — | — | — |
 
+> **Published.** The R109-F result was published to PR #686 at commit
+> `30ccc62339ef8dc59280fe1fd8333ed6d4691e6f` (09:40Z), with W&B runs
+> `xtvnzjtr` / `jrwlrn2k` / `aiwlu7z6`, status `inconclusive`, primary metric
+> `official_score_best` = 2.595765 against a baseline of 2.606650 (−0.42 %).
+> The remote branch fast-forwarded from `0b231a62` to `30ccc623`, so **that**
+> sha is the force-with-lease guard for any later publication, not the
+> `278c1561` recorded in the assignment — worth writing down, because the
+> stale value was in my own notes and would have failed the lease.
+
+> **A sharper channel instrument, for free (follow-up to §7.1–§7.2).** §7.1 had
+> to bracket other people's completions between cache-file mtimes, which is why
+> its brackets are tens of minutes wide. My *own* rows do not need that: I know
+> `createdAt` to the millisecond from the API, and the ticket-8 poller samples
+> the slot every 15 s, so the last `slot BUSY` line before the slot frees
+> brackets ticket 7's completion to **±15 s**. That makes ticket 7 the
+> highest-resolution service-time observation in the whole record — about two
+> orders of magnitude tighter than an mtime bracket — and it costs nothing,
+> because the poller was already running for a different reason. The log is
+> therefore an artifact to preserve, not a transcript to discard.
+>
+> Two cautions, so this does not become a ninth retraction. First, it is
+> **n = 1**: a single precise number is not a better estimate of the population
+> service time than n = 19 coarse ones, it is a better estimate of *one row*.
+> Second, the asymmetry is a selection effect — I can measure my own shots
+> precisely and everyone else's only coarsely, so the two figures answer
+> different questions and **must not be pooled**. What the precise value is
+> good for is checking whether my own rows sit inside the population
+> distribution §7.1 measured, which is exactly the question a shared account
+> raises and which no amount of mtime bracketing can answer.
+
+
 **Ticket 7's slot was contested and won.** The poller waited out 81 minutes of
 `7eca997d` (another `morganmcg1` submission, not mine) and took the slot on
 attempt 1 at 09:20:12Z with a 15 s interval. The draw lost at 07:57Z was lost to
