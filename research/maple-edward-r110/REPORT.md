@@ -63,6 +63,9 @@ call and I have made the revert trivial (six files, one script).
   32 700 / 32 768 non-zero reference bytes on a deterministic problem.
 - `tools/build-mlx-metallib.sh` rebuilt clean (`logs/07-metallib-build.log`);
   the AOT `.h` edits compile.
+- Four independent `./benchmark.sh --local-iterate` arms (2 candidate, 2 base)
+  each reported `passed_correctness = true` with the full harness token checks
+  (`logs/score-{C1,B1,B2,C2}.json`).
 - `git diff --numstat 30904ecb -- Sources Vendor benchmark.json Package.swift`
   is **non-empty**: six vendor files, **+236 / −4**.
 
@@ -153,30 +156,75 @@ The ranked kernel is **staging-bound by roughly 4× over MMA** (36.9 % vs
 to leave it alone.
 
 **However — the specific mechanism in this PR has already been tried there and
-it lost.** maple-tanjiro's `pf1` arm implemented depth-1 register prefetch on
-the ranked `_nax` kernel: an 18-byte `WidePrefetch` struct, a
+it did not pay.** maple-tanjiro's `pf1` arm implemented depth-1 register
+prefetch on the ranked `_nax` kernel: an 18-byte `WidePrefetch` struct, a
 `kloop_prefetch` template parameter, host lever
-`DARKBLOOM_NAX_KLOOP_PREFETCH` (default `"1"`), in
+`DARKBLOOM_NAX_KLOOP_PREFETCH` (default `"1"`, additionally forced to `0`
+unless `expert_aligned`, `quantized.cpp:947,1663-1678`), in
 `kernels/fp_quantized_nax.h`, `mlx-generated/fp_quantized_nax.cpp` and
-`quantized.cpp`, with tgmem held at 9 232 B. Official ranked M5 result:
+`quantized.cpp`. Official ranked M5 result:
 
 > control S = **97.5250 ms** → candidate S = **98.2092 ms**,
-> **ΔS = +0.684 ms — a regression**, declared null. Prefill CV is 0.103 %
-> (≈ 0.1 ms), so that is a **6–7σ** move in the wrong direction.
+> **ΔS = +0.684 ms = +1.52 σ_diff**, inside the ±1.35 ms band —
+> **declared a null, not a resolved regression**
+> (`research/tanjiro-nax-kloop-pipeline.md:49,677,836,843,1015,1036`).
 
-That is a direct, ranked-hardware refutation of transferring `pf` to `_nax`,
-and it is why I stopped rather than spending the remaining hours on a port.
-**Do not fund a duplicate `_nax` register-prefetch port.**
+### Correction to my rev2 draft, and to how I first read this
 
-The two results are consistent, and the reconciliation is the useful part.
+I previously wrote that `pf1` was a "6–7σ regression" and called it a "direct
+ranked-hardware refutation". **Both statements were wrong and I withdraw
+them.** The paired-session σ for a ranked ΔS is not the within-run prefill CV;
+the campaign's own diff band is ±1.35 ms, so `+0.684 ms` is `+1.52 σ` — short
+of the 3σ bar in either direction. Two further corrections from
+`research/tanjiro-nax-kloop-pipeline.md`:
+
+- Against the *other* control in the same document (`S = 97.895 ms`) the same
+  candidate is only **ΔS = +0.314 ms** (`:746` vs `:836`). The 0.37 ms gap
+  between the two controls is cross-session drift (`:872`), which is itself
+  larger than half the effect being argued about.
+- The decode axis moved `np` by −0.697 %, worth −0.174 pp of score after the
+  0.25 weight (`:880`).
+
+So the honest summary is: **`pf1` on `_nax` is an unresolved null.** It does
+not refute transferring `pf`, and it does not fund it either.
+
+**More importantly, `pf1`'s schedule is already the same as mine.** I had
+assumed tanjiro's arm differed from my `pf` in issue placement. It does not:
+`pf1` issues its prefetch loads *after both barriers* and *before* iteration
+k's MMA chain — true overlap, not under an `sg_active` guard, and it adds no
+barrier. tgmem is **9 232 B for both** control and `pf1`, maxThreads 1024, and
+occupancy is **7 threadgroups/core in both**
+(`research/artifacts/tanjiro-pr215-step0-pipeline-stats.txt:19-23`). That means
+my mechanism is *not novel* on `_nax`: the thing I would port has already been
+built and measured there, and the kernel was byte-exact restored afterwards
+(so it is not in the tree or history — only the docs and artifacts remain).
+
+### Why overlap is the wrong lever on `_nax` anyway
+
+The reconciliation is the useful part, and it is stronger than the σ argument.
+`research/tanjiro-nax-kloop-pipeline.md` §6.8 attributes ≈ 75 % weight to the
+hypothesis that the `_nax` staging path is **throughput-bound on memory-op
+issue**, with latency already hidden by 28 co-resident simdgroups. Under that
+model wall time ≈ issued ops ÷ pipe rate and is *invariant under reordering*,
+which is exactly what a null looks like. The supporting evidence is:
+
+- **S3** costs +7.853 ms while adding **zero** extra DRAM traffic — a pure
+  issue cost.
+- **S2 − S3** marginal bandwidth is 726 GB/s against a 343 GB/s run average:
+  the byte-fetching half is running near peak, not stalling.
+- **M2** (+2.046 ms for doubled MMA) shows the MMA chain is not the limiter
+  that an overlap would relieve.
+- The A-operand hoist that *already shipped* (`fp_quantized_nax.h:1863-1876`)
+  is the reordering win; there is not a second one to collect.
+
 `S3 / S2 = 49.2 %` says the ranked staging cost splits ≈ 49 % load-*issue* /
 51 % DRAM *bytes* (`R-S3-C MIXED`). Register prefetch reorders loads earlier;
-it removes neither issue slots nor bytes. On a kernel whose staging is
-issue- and byte-bound it can only add register pressure — which is what
-`+0.684 ms` looks like. On the M4 non-`_nax` kernel the limiter is the
-serialization around the barrier, not the byte stream, so the same reordering
-wins. **The `_nax` lever is fewer or wider staged bytes and fewer load
-instructions, not more overlap.**
+it removes neither issue slots nor bytes. On the M4 non-`_nax` kernel the
+limiter is the serialization around the barrier, not the issue stream, so the
+same reordering wins there. **The `_nax` lever is fewer or wider staged bytes
+and fewer load instructions, not more overlap.** On that basis, and not on the
+strength of `pf1`'s ΔS: **do not fund a duplicate `_nax` register-prefetch
+port.**
 
 ## D4 — the zero-tgmem register-prefetch variant (main deliverable)
 
@@ -231,6 +279,25 @@ the M4 column (D5) — but the ranked column is the one that decides, and it is
 ≈ 0 because the ranked host does not execute this kernel. I am not going to
 present the M4 number as progress against the crown deficit.
 
+### End-to-end paired `./benchmark.sh --local-iterate` (ABBA, added in rev3)
+
+The kernel rig above is the primary evidence. As a sanity check that the
+mechanism is not somehow *negative* end to end, I ran a four-arm ABBA at the
+full-harness level: candidate, base, base, candidate, each a fresh
+`./research/edward_r110_arm.sh <tag>` (metallib rebuild + `--local-iterate`),
+scores archived as `logs/score-<tag>.json`. The base arms ran from a temporary
+commit that restored the six touched files to `30904ecb`; that commit was
+dropped before submission.
+
+<!-- ARM-TABLE -->
+
+**Read this weakly.** The expected prefill effect is ≈ 0.43 % (~2.4 ms on a
+~575 ms prefill), which is at or below this harness's arm-to-arm spread, and
+`--local-iterate` re-derives its own baseline per invocation. The four arms
+are *consistent with* the rig result and rule out an end-to-end regression;
+they do not resolve a 0.4 % prefill move, and I am not claiming they do. Every
+arm reported `passed_correctness = true`.
+
 ## D5 — score-reach arithmetic, one column per host, never mixed
 
 ### M4 column (this host; measured)
@@ -265,11 +332,19 @@ i.e. **1 ms off S ≈ 0.37 % of score**.
 *If* the mechanism transferred at the same kernel percentage:
 `0.853 % × 43.26 ms = 0.369 ms of S` → `× 0.37 %/ms` ≈ **+0.137 % score**.
 
-**It does not transfer.** Two independent reasons, either sufficient:
-(a) the landed code is in the non-`_nax` family and the M5 never dispatches
-it; (b) the mechanism itself was measured on `_nax` by tanjiro's `pf1` at
-**+0.684 ms of S, ≈ −0.25 % of score** (D3). The honest M5 entry for this PR
-is **0.000 %**, and the `_nax` entry for the mechanism is **negative**.
+**It does not transfer, and the projection is not the honest entry.** The
+decisive reason is structural: the landed code is in the non-`_nax` family and
+the ranked M5 never dispatches it, so the M5 entry for *this PR* is **0.000 %**
+regardless of any kernel-level result.
+
+The separate question — would the *mechanism* pay if ported to `_nax`? — is
+**unresolved, not refuted**. tanjiro's `pf1` measured `ΔS = +0.684 ms`, which
+is `+1.52 σ` inside a ±1.35 ms band, i.e. a null (D3). What argues against the
+port is not that number but the issue-throughput attribution in D3: on `_nax`
+the staging path is bound on memory-op *issue*, which reordering does not
+change, and `pf1`'s schedule is already identical to mine. So the expected
+`_nax` value of a port is **≈ 0**, not negative — and 0 is not worth a
+student-week.
 
 The two columns are never added, averaged, or carried across.
 
@@ -337,15 +412,56 @@ nor `§0P.9` exists anywhere in this checkout** — I grepped `research/`,
 independently. The rule reached me only through the assignment text. If it is
 meant to be citable, it needs to land in a tracked file.
 
+## Suggested follow-ups (not implemented)
+
+Ordered by expected ranked value. None of these were run; each is a separate
+assignment.
+
+1. **`_nax` staged-byte reduction, not overlap.** D3's attribution says the
+   ranked staging path is bound on memory-op *issue*: S3 costs +7.853 ms with
+   zero extra DRAM, and S2−S3 marginal bandwidth is 726 GB/s against a
+   343 GB/s average. The lever that moves that is **fewer and wider load
+   instructions per staged tile** — e.g. widening the staged element type so
+   the same bytes arrive in fewer ops, or shrinking what is staged at all —
+   not issuing the same loads earlier. S2 is 36.9 % of W (35σ); even a 20 %
+   cut is ≈ 3.2 ms of S ≈ 1.2 % of score. This is by far the largest
+   identified target in the ranked census.
+2. **Explicitly do not fund a duplicate `_nax` register-prefetch port.** The
+   mechanism in this PR has already been built and measured there (tanjiro's
+   `pf1`), with an identical issue schedule, identical 9 232 B tgmem and
+   identical 7 TG/core occupancy, and it returned a null. Under the
+   issue-throughput model its expected value is ≈ 0. A second port would buy a
+   more precise estimate of zero.
+3. **Land `pf` on the research base for the non-`_nax` family.** It is
+   bit-exact, occupancy-neutral, and worth ≈ +0.85 % of gather-GEMM kernel
+   time on hosts that dispatch it — real engineering value for every non-M5
+   research rig even though it is worth 0.000 % ranked. The Submission
+   recommendation above has the exact revert if the advisor would rather keep
+   the submission surface clean.
+4. **Survey whether any *other* editable kernel family the M5 actually
+   dispatches has the same barrier-serialization shape** that made `pf` win on
+   M4. The win here came from a limiter (serialization around a tgmem barrier
+   at 8 resident threadgroups) that `_nax` does not have; the open question is
+   whether some third kernel does. This is a reachability survey, not a kernel
+   change, and should be cheap.
+5. **Resolve the `0.502` prefill elasticity.** D5 reproduces the advisor's
+   calibration only with a factor I could not derive; the plain 0.25 exponent
+   gives exactly half. Every M4 prefill projection in this campaign inherits
+   whichever one is right, so it is worth pinning down once in a tracked file.
+
 ---
 
 # Appendix A — rev1 / rev2 report
 
 Retained verbatim for provenance. Its *verdict* is superseded by the rev3
 sections above: the STOP stands for the tgmem-double-buffering mechanism
-(now `N-GEMM-TGMEM-DB-OCCUPANCY-RENT`), the "do not fund `_nax`"
-recommendation is **withdrawn** (D3), and the "the prize is too small"
-framing is **wrong** (D4).
+(now `N-GEMM-TGMEM-DB-OCCUPANCY-RENT`); the rev2 reason for not funding `_nax`
+work — "the mechanism is small" — is **withdrawn**, since `_nax` is where 37 %
+of the ranked window lives (D3); and the "the prize is too small" framing is
+**wrong** (D4). Note the rev3 conclusion still says *don't port `pf` to
+`_nax`*, but on the opposite grounds: `_nax` is worth attacking, just not with
+this mechanism. Any σ or "regression" language about tanjiro's `pf1` in this
+appendix is superseded by the correction in D3.
 
 ## The stop rule
 
