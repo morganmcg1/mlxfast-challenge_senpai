@@ -37,12 +37,17 @@ A fresh draw of the tree we already hold must come in at **×1.014441** of its p
 confirmed by two independent methods" are both retracted — the second was a spurious agreement
 produced by applying the winner's-curse correction to one method and not the other.)
 
-**Multiply that by the draws that actually remain, not by three.** §4 says **1, maybe 2**, and one of
-those is `5fae2f1`, already in flight and already committed to whatever tree it carries. So the
-campaign's *total* remaining probability of clearing the bar, with the code we hold, is **≈1–3 %** —
-and per the table below no lever Maple ever measured moves that number by more than a point or two.
-Read that as a planning fact, not as despair: it means the expected value of protecting the last
-draw's validity is larger than the expected value of improving what it carries.
+**Multiply that by the draws that actually remain, not by three.** The global-queue read says **1,
+maybe 2** (§4), and one of those is `5fae2f1`, already in flight and committed to whatever tree it
+carries — so the campaign's *total* remaining probability of clearing the bar, with the code we hold,
+is **≈1–3 %**. But **§4a is the live correction**: our account's own history sustained ≈33 min/row for
+9h20m, which would allow rather more than two. **The draw count is the one input that can still move
+this total materially, which is why #745 outranks every delta on this page.** Per the table below, no
+lever Maple ever measured moves it by more than a point or two.
+
+Read that as a planning fact, not as despair: it means the expected value of protecting each draw's
+validity, and of not missing one to a slow build, is larger than the expected value of improving what
+they carry.
 
 The tails are **asymmetric against us**: the one high-σ replicate group (`7cbffc2c`, n=4) is composed
 entirely of *downward* excursions to −2.4 %. There is no matching +2.4 % population. §6.5.
@@ -77,7 +82,37 @@ previous row `4be372f` (created 09:20Z) went terminal ≈11:00Z at 2.57671436, s
 ≈76 min (11:00Z → 12:16Z) and is now busy again.** Maple did not fire it; Maple fired nothing this
 campaign.
 
-What that implies, with the assumption stated:
+### 4a. CORRECTION at 12:56Z — the "2.3 h sojourn" is a *global*-queue number, and our account's own history disagrees with it
+
+Read this before the schedule below, which it partly supersedes.
+
+My 12:54Z poll of `mlxfast submissions` returns **177 rows, header `eigenlabs/mlxfast-challenge my
+submissions`, `solver = morganmcg1` on every row** — it is **account-scoped**. The 12:06Z read of "9
+non-terminal rows, head-of-line `ggt54` age 141 min" therefore came from a **different, non-account
+scope**: `ggt54` appears nowhere in our 177 rows. So the ≈2.3 h sojourn — and the 14:30Z window, and
+the "one draw left" conclusion — is derived from a **global** queue, not from our own service history.
+
+Our own service history for 8/11, created times (UTC):
+
+```
+00:00 00:39 01:07 01:31 01:54 02:23 03:05 03:30 03:55 04:20 04:44 05:09 05:33 07:01 07:26 07:57 09:20 | 12:16 (validating)
+```
+
+Seventeen rows in 9h20m, modal gap **23–28 min**, **all of them reaching a scored terminal state**.
+A 2.3 h serial sojourn against 25-minute arrivals would have built a ~5-row backlog, and no poll we
+have — 12:06Z, 12:46Z, 12:54Z — ever caught more than **one** of our rows non-terminal. Sustained
+account throughput of ≈33 min/row is not compatible with a 2.3 h serial sojourn.
+
+**Operational consequence, and it is the strict direction:** the window may open **much earlier than
+14:30Z** — possibly within minutes. Countervailing evidence is honest too: `4be372f` took ≤100 min
+(09:20Z → observed terminal ≈11:00Z) and `5fae2f1` had been `validating` ≥38 min at 12:54Z, already
+above the morning mode, so congestion near the close is plausibly real.
+
+**So: be built, green and hash-checked NOW, not by 14:30Z.** maple-fern is directly measuring
+`5fae2f1`'s flip time on 5-minute polls (#745) and will post it the moment it flips; that single
+observation replaces every sojourn percentile in every Maple document, including this one.
+
+What the older, global-queue read implies, with the assumption stated:
 
 * At fern's measured ≈2.3 h sojourn, `5fae2f1` adjudicates **≈14:30Z**.
 * **If the account is served serially** — which every row in the history is *consistent* with, but
