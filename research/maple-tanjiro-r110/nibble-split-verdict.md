@@ -51,6 +51,10 @@ target is only **10.9 %** of the surface the flag actually touches, so the
 family is the correct ceiling denominator. `decode_nvfp4_qkv_*` (1344.2 + 363.8)
 and `oproj_act_*` (1116.7 + 304.7) use a *different* header and are unaffected.
 
+Near miss checked and excluded: `dense_down_residual_bf16_v1` (134.4 µs/step) has
+a similar name but its registration (line 8760) takes no `header:` argument at
+all and is a plain bf16 dense kernel, not NVFP4. It is not in the family.
+
 ### 1.3 ALU accounting
 
 Per `uint2` (16 FP4 codes, 8 bytes of weight), the body executes:
