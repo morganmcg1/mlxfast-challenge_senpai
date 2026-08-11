@@ -29,6 +29,7 @@ prediction with an explicit interval, not as a locally timed win.
 | research-only paths | `research/maple-tanjiro-r125d-*.{py,swift,md}`, `research/artifacts/tanjiro-r125d/**` |
 | scope gate | `assignment scope OK: 1 submitted path(s)` |
 | editable budget | `current=2699804/3000000 headroom=300196 growth=-284045/262144` |
+| W&B run | [`1nd4yw9s`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/1nd4yw9s) (census tables, occupancy ladder, score prediction, paired A/B) |
 
 **Predicted effect (single transfer constant, applied once).**
 
@@ -123,6 +124,9 @@ peak co-resident threadgroups:
 | 4 624 | 173.2 ± 29.2 | 8.66 | 9 976 B |
 | 9 232 | 160.6 ± 21.5 | 8.03 | 18 505 B |
 | 18 448 | **115.4 ± 1.77** | 5.77 | **26 588 B** |
+
+(in-flight staged bytes per core = resident TGs per core × `staged_bytes_per_sk_step`
+× 2, since the stage ring keeps two SK steps in flight.)
 
 Doubling the footprint 9 232 → 18 448 B costs only **28 %** of co-residency, not
 50 %, so bytes of weight in flight per core rise **+44 %**. That is the whole
@@ -237,7 +241,8 @@ What *is* verifiable locally, and was verified:
 | assignment scope | `senpai/validate-assignment-scope.sh $BASE_SHA Vendor/.../quantized.cpp` | **OK**, 1 submitted path |
 | editable budget | `senpai/check-editable-budget.sh 1bc1c895…` | **OK** `current=2699804/3000000 headroom=300196 growth=-284045/262144 files=143` |
 | upstream equivalence | `EQUIVALENCE_EXACT_STEPS=8 research/run_upstream_equivalence.sh` | see below (job `9c25baf4`) |
-| 64-step drift tripwire | fixture `correctness_golden.json` | **absent from this checkout** (same as R121-A) — not runnable here |
+| local checked-token gate (both arms, 2 reps each) | `./benchmark.sh --local-iterate` | **`passed_correctness = true`, `checked_steps = 130`, `max_abs_diff = 0`**, and `golden_hash = b9509697c08a2cf3c2…` **identical** for candidate and baseline arms |
+| standalone 64-step drift fixture | `correctness_golden.json` | not present under that name in this checkout (same as R121-A); the equivalent local coverage is the 130-checked-token row above |
 
 Equivalence detail (candidate tree, `quantized.cpp` recompiled in the debug
 bundle — see `[5/11] Compiling quantized.cpp` in the job log):
@@ -282,11 +287,33 @@ just timed:
 4. `bn` does not feed any host-side allocation, cache-shape, or metadata
    decision, so no decode-visible state changes.
 
-A paired local `--local-iterate` A/B was **not** used as the neutrality
-argument, and deliberately so: on this host the candidate and the baseline
-execute *the same machine code* (§3), so such a run measures only host noise and
-would be evidence-shaped noise rather than evidence. The local prefill_speedup
-floor failure (≈0.33) on this box is structural and independent of this change.
+A paired local `--local-iterate` A/B was then run anyway, as a **regression
+check, not as the neutrality evidence**. The base already exposed
+`DARKBLOOM_EXPERT_DOWN_BN` (rungs 32/64; this change adds 128 and moves the
+default), so both arms run the *same* candidate binary with the env var pinned,
+alternating `128, 64, 128, 64` behind the same thermal gate
+(`research/maple-tanjiro-r125d-paired-ab.sh`, 612 s, 2 reps per arm):
+
+| metric | `BN=128` (shipped default) | `BN=64` (base default) | cand/base |
+| --- | --- | --- | --- |
+| decode s/token (mean of 2) | 0.012 843 459 | 0.012 869 360 | **0.997 99** |
+| prefill s/token (mean of 2) | 0.001 123 482 | 0.001 116 801 | 1.005 98 |
+| decode_speedup | 1.0789 | 1.0767 | — |
+| prefill_speedup | 0.3271 | 0.3291 | — |
+| `passed_correctness` / `checked_steps` | true / 130 | true / 130 | — |
+| `max_abs_diff` | 0 | 0 | — |
+| `golden_hash` | `b9509697c08a2cf3c2…` | `b9509697c08a2cf3c2…` | identical |
+
+Read this correctly: on a gen-16 host the two arms execute *identical machine
+code* on the scored path (§3), so the ±0.2 % decode and ±0.6 % prefill spreads
+are the host's paired-noise floor, and they bracket 1.0 — i.e. the run shows no
+host-side, allocation, or dispatch-shape side effect from raising the rung, and
+no correctness change (130/130 checked steps, byte-identical golden hash in both
+arms). It is **not** evidence about the kernel's speed, which is why (1)-(4)
+above carry the neutrality claim. The local prefill_speedup floor failure
+(≈0.33) reproduces in **both** arms and is structural to this box, independent of
+this change.
+
 Decode neutrality on the official host is asserted from (1)-(4) and is
 falsifiable there: any decode_speedup below 1.00 − noise on the M5 receipt
 contradicts the argument and should trigger the §7 revert.
@@ -345,11 +372,14 @@ Stated before the draw so the receipt cannot be reinterpreted afterwards:
 
 ## §8 Deviations from the assignment
 
-1. **No local timing arm.** The assignment anticipated a paired
-   `--local-iterate` A/B for decode neutrality. I ran the structural
-   neutrality argument instead (§5) because the edited function is provably
-   unreachable on this gen-16 host; a paired run here would compare identical
-   machine code. This is a deliberate, documented deviation, not a skipped gate.
+1. **The local timing arm is a regression check, not neutrality evidence.** The
+   assignment anticipated a paired `--local-iterate` A/B for decode neutrality.
+   I ran it (§5: 2 reps per arm, alternating, env-pinned rungs on one binary) and
+   it is clean — decode ratio 0.997 99, correctness 130/130, identical golden
+   hash — but on this gen-16 host both arms execute identical machine code on the
+   scored path, so the neutrality claim rests on the structural argument (§5
+   (1)-(4)). Recording the local numbers as a *speed* result would be the
+   "evidence-shaped noise" failure this campaign has hit before.
 2. **A2 (`BN=32`) shipped as a patch artifact, not a second commit.** The
    assignment allows 1-2 single-lever arms; A2 is only useful *conditionally*
    (§0 preference order, §7 criterion 3), so committing it as a second arm would
@@ -386,6 +416,12 @@ swiftc -O research/maple-tanjiro-r125d-occupancy-census.swift -o /tmp/occ && \
 swift build -c release --force-resolved-versions && git checkout -- Package.resolved
 EQUIVALENCE_EXACT_STEPS=8 research/run_upstream_equivalence.sh
 
-# 5. raise the A2 counter-arm if §7 criterion 3 fires
+# 5. paired local A/B regression check (~10 min; one model process at a time)
+REPS=2 bash research/maple-tanjiro-r125d-paired-ab.sh
+
+# 6. publish census + prediction + A/B to W&B
+python3 research/maple-tanjiro-r125d-wandb.py
+
+# 7. raise the A2 counter-arm if §7 criterion 3 fires
 git apply research/artifacts/tanjiro-r125d/bn32.patch
 ```
