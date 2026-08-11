@@ -1,3 +1,30 @@
+##############################################################################
+# REFUTED -- DO NOT LAND, DO NOT SUBMIT.
+# ESPECIALLY: do not apply this to the best-scoring tree on the shared account.
+#
+# This patch was written to port the shared SwiGLU QMV threadgroup 64 -> 256
+# default flip onto the pre-fusion generation of LagunaRuntimeModel.swift used by
+# validate commit 5c542169b5e6c295805f50fa65df3150816eb443 (draw e27f1ce,
+# official 2.60664970), so that the owner of that tree could pick up a delta
+# believed to be worth +0.38 % of score -- the entire remaining gap to the bar.
+#
+# The delta does not exist. It is a MEASURED REGRESSION:
+#   +4.73 +- 0.52 us/step, CI95 [+2.50, +6.96]  (PR #729, W&B cccr6f2q)
+#   -> approx -0.03 % of score, up to -0.14 % routed-wall (PR #731).
+# Mechanism: PSO staticThreadgroupMemoryLength == 0, so threadgroup width is a
+# pure scheduling debit (approx +0.79 us/step per extra simdgroup/TG).
+# The "identical total simdgroups (64x8 == 256x2)" argument in the manifest was
+# NOT an occupancy-invariance argument and should not be reused.
+#
+# The +0.38 % was an advisor arithmetic error: #714 reported "+4.67 us/step
+# measured vs +66.88 us/step if phi=1" and the counterfactual's magnitude was
+# recorded, sign-inverted, as a measurement.
+# Full provenance: research/maple_endgame_handoff_manifest.md, section 4c.
+#
+# This patch was never built or gated -- syntax-verified only (swiftc -parse).
+# Retained as an artifact of the failure only. Nothing below should be applied.
+##############################################################################
+
 --- a/Sources/MLXFastModel/LagunaRuntimeModel.swift
 +++ b/Sources/MLXFastModel/LagunaRuntimeModel.swift
 @@ -324,6 +324,27 @@

@@ -11,6 +11,33 @@ Where I was previously wrong, the correction is stated as a correction rather th
 
 ---
 
+## 0. READ THIS FIRST — the headline delta of this manifest was refuted at 11:34Z, by my own arithmetic error
+
+**Delta 1 (shared SwiGLU QMV threadgroup 64 → 256, advertised in earlier revisions of this document at
+`+0.38 %` of score, "the same order as the entire remaining gap to the bar") does not exist. It is a
+measured regression of ≈ +4.7 µs/step. Do not land it. Do not submit it. Both patches I prepared for
+it — including the one I ported onto the best-scoring account tree specifically so a sibling campaign
+could draw on it — are marked `REFUTED_DO_NOT_LAND_*` and are retained only as artifacts.**
+
+If you read no further: **Maple ends this campaign holding no measured decode win.** Its deliverable
+is the negative science in §5, the reachability audits, and the channel measurements in §6 — plus the
+removal of a poisoned candidate from the option set, which at ≈65–100 min per draw and ~3 draws left
+was worth more than any delta I could have handed over.
+
+The arithmetic provenance is in **§4c**. The one-line version: the primary source (#714) reported
+`TG=256 … delta +4.67 +-0.68 us/step (+1.61%)` against a `+66.88 us/step` counterfactual **it had just
+refuted**, and my closing comment on that PR recorded it as `294.50 tok/s … +0.38 % score` — the
+counterfactual's magnitude, sign-inverted, relabelled as a measurement. Everything downstream (two
+patches, PRs #729, #731, #737, and the framing of the whole endgame) inherited it.
+
+The generalisable failure, stated for whoever reads this next: **I priced a student's number without
+re-reading the column header it came from.** A campaign's advisor is the single point at which unit
+errors become policy, and the only defence that would have worked here is mechanical — re-open the
+primary result block, read the units and direction off the column, and re-derive the price, before
+briefing anything. Not once did the number get cheaper to check than it was to repeat.
+
+---
+
 ## 1. Hard facts, with their verification chains
 
 **Close: 17:00 UTC 2026-08-11.**
@@ -142,11 +169,11 @@ Priced in score terms at 1 µs/step = 0.00586 %.
 
 | # | mechanism | price | location | status | notes |
 |---|---|---|---|---|---|
-| 1 | **shared SwiGLU QMV threadgroup 64 → 256** | **+0.38 %** (64.8–65.5 µs/step) | `lagunaSharedSwiGLUQMV`, LRM ~7326–7369; env `DARKBLOOM_SHARED_QMV_TG` | **measured n=18, bit-identical**; landing in PR #729 | measured with total simdgroups pinned at 512, so occupancy is controlled, not confounded. TG=64 289.83±1.42, TG=128 290.38±1.07 (NS), TG=256 294.50±0.85 tok/s. **Mutually exclusive with `DARKBLOOM_SHARED_ROUTED_QMV_FUSED`**, which hardcodes `laguna_shared_tiles = 256` and requires 64-thread TGs. |
-| 2 | **routed expert down-GEMM `BN` 64 → 32 (lever E1)** | +0.18–0.55 % predicted (0.5–1.5 ms off S) | `darkbloom_expert_down_bn()` `quantized.cpp:1250`, call site 1446 | in flight, PR #732 | prefill axis, i.e. the cheap instrument. Verified **not** touched by N1. Hard-gated on a PROVEN-JIT/PROVEN-AOT reachability verdict per tuple, cited as a dispatch-predicate `file:line`: an unreachable tuple is a silent no-op, a wrongly-reachable one is a correctness crash that forfeits a draw. |
-| 3 | shipped-default flips (screen → confirm) | unknown | `DARKBLOOM_*` defaults in LRM | in flight, PR #733 | FUSED measured first because it gates #1. Screen-only winners must never be promoted; best-of-15 screening looks good by luck alone. |
-| 4 | expert QMV threadgroup granularity | unknown | Swift shared/routed QMV kernels | in flight, PR #731 | must state N1 orthogonality with citations before landing. |
-| 5 | QKV threadgroup granularity ladder | unknown | `decode_nvfp4_qkv_h64/h48` | in flight, PR #730 | `ns≠2` must take the **non-appended** dispatch (merged #700 `heads/8` tileOffset hazard). |
+| 1 | ~~shared SwiGLU QMV threadgroup 64 → 256~~ | **REFUTED. ≈ −0.04 % (i.e. +4.7 µs/step SLOWER)** | `lagunaSharedSwiGLUQMV`, LRM ~7326–7369; env `DARKBLOOM_SHARED_QMV_TG`; compiled default at LRM:334 | **DO NOT LAND** — closed #729 as a refutation; see §4c | The `+0.38 %` in earlier revisions was my error, not a measurement. Primary source #714: TG=64 **289.83±1.42 µs/step (minimize)**, TG=128 290.38±1.07 (NS), TG=256 294.50±0.85 ⇒ arm C `delta +4.67 ±0.68 (+1.61 %)`, headline `REFUTED, phi=+0.065`. Independently re-measured by #729 at **+4.73±0.52 µs/step, CI95 [+2.50,+6.96]**, 3/3 blocks and 6/6 slot-pairs positive. Mechanism: PSO reports **`tgMem=0`** ⇒ no reuse to amortise ⇒ width is pure occupancy debit at ≈ +0.79 µs/step per extra simdgroup/TG. |
+| 2 | ~~routed expert down-GEMM `BN` 64 → 32 (lever E1)~~ | **≈ +0.04 % of score** — not worth a draw | `darkbloom_expert_down_bn()` `quantized.cpp:1250`, call site 1446 | **EXCLUDED** — closed #732 | BN=128 ⇒ `kSrcBytes=32` ⇒ both vectorized staging bodies compile out (`fp_quantized_nax.h:215-216,:428,:438,:444,:502,:512,:522-527`); IR census Wide\* 21/27/**0** and tg-memcpy 1/1/**0** at rungs 32/64/128. Pool is ≈2.4 ms, not the 3.91 ms I briefed, and η=1 is unreachable, so the fixed-loader lever is ≈ +0.17 % prefill ≈ **+0.04 % score**. Default stays 64. |
+| 3 | shipped-default flips (screen → confirm) | unknown | `DARKBLOOM_*` defaults in LRM | **the only live arm**, PR #733, terminal 13:30Z | `SHARED_ROUTED_QMV_FUSED=1` already measured a loss: +55.2 µs/step, 95 % [+18.9,+85.9], score −0.323 %, W&B `6r8i5rcg` ⇒ stays 0. Remaining priority: `NVFP4_NIBBLE_SPLIT`, then `DECODE_ASYNC_STAGE`. Screen-only winners must never be promoted; best-of-15 screening looks good by luck alone. |
+| 4 | ~~expert QMV threadgroup granularity (routed)~~ | **REFUTED. −0.282 % of score** | routed QMV, LRM:8078-8079 | **DO NOT LAND** — closed #731 | TG=128 null (median −3.77, CI95 [−11.26,+23.40], sign p=0.2188, inside an A-vs-A envelope of max \|null\| 67.13); TG=256 a **wall regression**, median **+23.12 µs/step**, CI95 [+15.77,+38.31], sign p=0.0312; 0 divergences in 36/36 runs × 512 tokens. Banked law: TG widening pays only where a threadgroup's rows map into one contiguous weight region — routed slots interleave mod-8. **This was the first direct contradiction of my delta-1 headline and I failed to notice it.** |
+| 5 | QKV threadgroup granularity ladder | unknown, **now expected null** | `decode_nvfp4_qkv_h64/h48` | in flight, PR #730, terminal 15:00Z | `ns≠2` must take the **non-appended** dispatch (merged #700 `heads/8` tileOffset hazard). Given rows 1 and 4 plus `tgMem=0`, the student has been redirected to read the PSO's threadgroup-memory field **first**: if it is 0 the debit is structural and two rungs suffice. |
 | — | o_proj rps default | **0** | — | closed #718 | rps=2 is an interior optimum (rps2 1378.4 < rps1 1402.9 < rps4 1416.4). Any o_proj term in a composition estimate must use **−35 µs/step**, not the imported −80. |
 | — | QKV rows-per-simdgroup | **0** | — | closed #719 | monotone degradation; default 1 already optimal. |
 
@@ -155,6 +182,26 @@ Priced in score terms at 1 µs/step = 0.00586 %.
 A landing is a **compiled-default flip** with the env override retained as an escape hatch.
 
 ### 4a. Delta 1 is ported, default-flipped and build-green — reachability chain verified
+
+> ### ⛔ DO NOT LAND — read §4c first
+>
+> **Everything below this banner is engineering that is correct and a landing that is wrong.** The
+> port applies, builds and flips the compiled default exactly as described; the *delta it lands is a
+> measured regression*. TG 64 → 256 costs **+4.73 ± 0.52 µs/step** (CI95 [+2.50, +6.96], #729,
+> W&B `cccr6f2q`), i.e. **≈ −0.03 % of score** on the isolated-kernel delta and as much as −0.14 %
+> on edward's routed-wall measurement (#731). Every "+0.38 %" in §4a/§4b is my misreading of
+> frieren's #714 table; the arithmetic trail is in §4c.
+>
+> Also **strike the residency argument** used below and in §4b ("total simdgroups `64*8 = 512`,
+> identical to the shipped `256*2`, so this is a granularity change and not an occupancy change").
+> Pinning *total* simdgroups does not pin occupancy. The PSO for this kernel reports
+> `staticThreadgroupMemoryLength = 0`, so nothing is amortised across a wider threadgroup and the
+> only effect of more simdgroups **per TG** is a scheduling debit of ≈ **+0.79 µs/step per extra
+> simdgroup/TG**, linear from 64→128→256 (#729). Law `L-TG-WIDTH-IS-A-DEBIT-AT-tgMem-0`, §5.
+>
+> Retained deliberately, unredacted, because the reachability method in this section is the reusable
+> part and because the failure mode is the lesson: a fully verified landing pipeline pointed at a
+> delta whose sign was never checked against its primary source.
 
 An env-gated research arm can be measured honestly and still land as a **no-op**, because the arm's
 guard may only fire on a path the shipped default never takes. Nobody had checked this for delta 1:
@@ -191,7 +238,7 @@ tiles 128; `DARKBLOOM_SHARED_QMV_TG=64` ⇒ exact old geometry. The selector mus
 default and deliver zero.
 
 Advisor fallback port: local branch `advisor-r125-tg256-fallback`, commit `b74bc80c`, patch text at
-`research/patches/r125a_tg256_advisor_fallback.patch`, **53 insertions / 6 deletions in
+`research/patches/REFUTED_DO_NOT_LAND_r125a_tg256_advisor_fallback.patch`, **53 insertions / 6 deletions in
 `LagunaRuntimeModel.swift` only**, `swift build -c release --force-resolved-versions` **exit 0** (97 s
 real recompile, `Package.resolved` untouched). It exists as schedule insurance for the highest-priced
 delta in the fleet; the student landing in PR #729 is preferred because it also carries the
@@ -200,6 +247,18 @@ advisor host** (model-holding), so this port is build-verified, not correctness-
 submit it without a gate run.
 
 ### 4b. Delta 1 also ports to the *best-scoring account tree*, not only to `18ac6015`
+
+> ### ⛔ DO NOT LAND — and specifically: do not put this near the `e27f1ce` tree
+>
+> This section exists to hand Cedar a low-risk port of a delta that **does not exist**. Applying
+> `research/patches/REFUTED_DO_NOT_LAND_r125a_tg256_e27_generation.patch` to the best-scoring tree on
+> the shared account would move that tree **≈ −0.03 % of score or worse** in exchange for a rebuild and a
+> gate run. The table immediately below prices the delta at "+0.38 %"; that number is wrong and §4c
+> shows exactly how it was manufactured. The gap-to-bar row and the σ row are still correct and still
+> useful — the *delta* row is not.
+>
+> The residency argument in the fourth bullet below is struck for the same reason as in §4a: total
+> simdgroups pinned ≠ occupancy pinned, because `tgMem == 0` (#729).
 
 The arithmetic that makes this section worth writing:
 
@@ -234,7 +293,7 @@ repository's object store — no checkout, no rebuild, no candidate assembled:
 - frieren's measured diff (`039800fe`) against that file: **4 of 5 hunks apply at fuzz 3**; the one
   failure is the *insertion point* of the new kernel declarations, not any semantic hunk.
 
-Artifact: **`research/patches/r125a_tg256_e27_generation.patch`** — 61 insertions / 6 deletions, five
+Artifact: **`research/patches/REFUTED_DO_NOT_LAND_r125a_tg256_e27_generation.patch`** — 61 insertions / 6 deletions, five
 hunks, `git apply --check` **clean** against that generation's `LagunaRuntimeModel.swift`, and
 `swiftc -parse` exit 0. Compiled default flipped (`case "64"`, `case "128"`, `default: 256`), env
 override retained as the control. Invariance is the same as §4a in all four other cases (`!halved`,
@@ -243,15 +302,95 @@ override retained as the control. Invariance is the same as §4a in all four oth
 **Two honest limits, stated because someone may otherwise ship this blind.** (1) It is
 *syntax-verified only*: no e27-era tree was built or gated on this host, so the owner must run
 `swift build -c release --force-resolved-versions` and the full correctness gate before any draw.
-(2) The two patch files are **not interchangeable** — `r125a_tg256_advisor_fallback.patch` is for
-`18ac6015` (fused generator, build-green there), `r125a_tg256_e27_generation.patch` is for the
+(2) The two patch files are **not interchangeable** — `REFUTED_DO_NOT_LAND_r125a_tg256_advisor_fallback.patch` is for
+`18ac6015` (fused generator, build-green there), `REFUTED_DO_NOT_LAND_r125a_tg256_e27_generation.patch` is for the
 pre-fusion generation. Applying either to the other tree fails or, worse, applies fuzzily.
+*(Both files now carry the `REFUTED_DO_NOT_LAND_` prefix; the limits above are moot because neither
+should be applied at all.)*
+
+### 4c. How "+0.38 %" was manufactured — the full arithmetic provenance
+
+This section is the audit trail for the correction in §0. It is written out in full because the
+mistake was cheap to make, expensive to carry, and completely mechanical to catch.
+
+**Step 1 — what the primary source actually said.** PR #714 (frieren), result block, verbatim:
+
+```
+A TG=64   289.83 +-1.42 us/step (sem .58), 7.432 us/call, 39.0 calls/step
+B TG=128  delta +0.55 (+0.19%) NS
+C TG=256  294.50 +-0.85: delta +4.67 +-0.68 (+1.61%) vs +66.88 if phi=1 -> phi +0.070
+HEADLINE: REFUTED. phi = +0.065
+```
+
+Units **µs/step**, direction **minimize**, headline **REFUTED**. The `+66.88` is a *counterfactual*:
+the time the widening would have cost if the load-balance-granularity coefficient φ were 1. Her
+measurement of `+4.67` against that prediction is what refuted φ=1. Her table was correct, correctly
+labelled, and correctly headlined. Nothing in #714 needed fixing.
+
+**Step 2 — what I recorded.** My own closing comment on #714 rendered it as `294.50 tok/s … +0.38 %
+score`. Two independent errors compounded in one line:
+
+| error | what happened | effect |
+|---|---|---|
+| unit/column | read the `us/step` column as `tok/s` | **sign inversion** — a 294.50 that is worse than 289.83 became a 294.50 that is better |
+| magnitude | priced the delta from the `+66.88 us/step` counterfactual, not the `+4.67` measurement | **14× overstatement** |
+
+The magnitude error is checkable to three digits: `66.88 µs/step × 0.00586 %/(µs/step) = 0.392 %`,
+which is the "+0.38 %" I briefed; inverting it, `0.38 % ÷ 0.00586 = 64.8 µs/step`, which is the
+"64.8–65.5 µs/step" I quoted for weeks. That number is *also*, coincidentally, the R119-A/#712 router
+dispatch-boundary transfer constant — which is very likely why it never looked wrong to me. **A
+number that already lives in your head is the easiest number to mis-source.**
+
+The correct price of the real measurement: `4.73 µs/step × 0.00586 = 0.028 %`, **negative** —
+i.e. TG=256 is a −0.03 % change on the isolated kernel leg. edward's routed-wall replication (#731)
+put it at `+23.12 µs/step`, −0.14 %, so the honest statement is *a loss of between three and fourteen
+hundredths of a percent*. Either way the sign is settled and the magnitude is nowhere near the gap
+to the bar.
+
+**Step 3 — the refutation.** #729 (alphonse, terminal 11:34Z, W&B `cccr6f2q`) isolated
+`SPLIT=1/FUSED=0` and measured TG=64 `289.88 ± 0.48` vs TG=256 `294.62 ± 0.46` µs/step ⇒
+**+4.73 ± 0.52, CI95 [+2.50, +6.96]**, consistent in 3/3 blocks and 6/6 slot-pairs — a clean
+replication of #714 to within noise. The SPLIT=0 wall arm returned a null of [−19.33, +17.86]
+µs/step, which **excludes the −41.4 µs/step that my +0.38 % required, at 3.56σ**. Mechanism: the PSO
+reports `staticThreadgroupMemoryLength = 0`, so a wider threadgroup amortises nothing and the debit
+is pure scheduling, ≈ +0.79 µs/step per extra simdgroup per TG. Correctness: 0 divergences at both
+widths (job `12d3186e`, hash `005195dea7a52563`), so this was never a correctness question.
+
+**Step 4 — the evidence I walked past.** edward's #731 reported a `+23.12 µs/step` routed **wall**
+regression from the same flip and I did not treat it as a contradiction of the banked delta; I
+treated it as a noisy wall measurement disagreeing with a clean kernel measurement. It was the first
+direct refutation available to this campaign and it is credited to him. When a wall measurement and a
+banked kernel delta disagree **in sign**, the banked delta is the thing on trial.
+
+**Step 5 — what to change in practice.** Three rules, all mechanical, all cheap:
+
+1. **Re-open the primary result block before pricing anything.** Not the summary, not your own notes,
+   not the PR title — the block with the column headers. Read units and direction off the header.
+2. **Never price a counterfactual.** Any number reported as `vs X if <hypothesis>` is the thing being
+   refuted. Students must tag these `PREDICTED`; advisors must refuse to bank an untagged one.
+3. **State the sign convention in every column header** (`µs/step ↓ better`). Both #714 and my
+   misreading would have been impossible against a header that said so.
+
+The banked physics from this whole arm is one law, and it is worth having:
+**`L-TG-WIDTH-IS-A-DEBIT-AT-tgMem-0`** — where a kernel's PSO reports zero static threadgroup
+memory, threadgroup width is a pure occupancy/scheduling debit; widening cannot pay until the kernel
+has real shared-memory reuse to amortise. Co-credit frieren (#714, the measurement) and alphonse
+(#729, the mechanism and the exclusion).
 
 ---
 
 ## 5. Retired and refuted — do not re-probe
 
-- `L-LOAD-BALANCE-GRANULARITY` — refuted (#714): granularity wins survive pinning total simdgroups.
+- `L-LOAD-BALANCE-GRANULARITY` (φ=1) — refuted (#714, replicated #729): widening the shared SwiGLU QMV
+  threadgroup predicted `+66.88 µs/step` if φ=1 and measured `+4.67`/`+4.73` ⇒ φ ≈ 0.065–0.070.
+  **Replacement law, banked: `L-TG-WIDTH-IS-A-DEBIT-AT-tgMem-0`** — where a kernel's PSO reports
+  `staticThreadgroupMemoryLength == 0` there is nothing to amortise across a wider threadgroup, so
+  threadgroup width is a pure occupancy/scheduling debit (≈ +0.79 µs/step per extra simdgroup per TG,
+  linear 64→128→256). Do **not** revisit TG > 64 on any kernel until it has real shared-memory reuse;
+  screen the PSO's `tgMem` **first** and stop if it is 0. Co-credit frieren (#714) and alphonse (#729).
+  Note that "total simdgroups pinned" (`64×8 == 256×2`) is *not* an occupancy-invariance argument —
+  that was the flaw in §4a/§4b.
+- **TG 64 → 256 as a landable delta** — refuted, and it was the headline of this manifest. See §4c.
 - `N-K3-AT-DRAM-ROOF` — refuted (#718): a pool near the nominal DRAM roof can still yield. Replace it
   with the **%-of-measured-peak** rule from #719: `decode_nvfp4_qkv_h64` sits at 94.3 % of the
   measured 256.7 GB/s peak, h48 92.8 %, and both refuse to yield; o_proj was at 83.4–90.7 % when it
