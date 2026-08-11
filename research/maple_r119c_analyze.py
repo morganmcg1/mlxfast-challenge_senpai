@@ -123,6 +123,44 @@ def main() -> int:
               f"({d / base * 100:+6.2f}%)  predicted_if_phi1={pred:+7.2f} "
               f"phi={phi:+.3f} [{phi_lo:+.3f}, {phi_hi:+.3f}]")
 
+    # Common-mode normalization. Every other kernel in the same decode step is
+    # untouched by the arm, so their sum is an in-run reference for session
+    # speed; dividing it out removes drift shared by the whole slot.
+    ref = {}
+    for tg in arms:
+        ref[tg] = [sum(v for k, v in rows.items() if ARM_ROW not in k)
+                   for _, rows, _, _, _ in per_arm[tg]]
+    grand = statistics.mean([r for tg in arms for r in ref[tg]])
+    norm = {}
+    print("\ncommon-mode-normalized (arm kernel scaled by the in-run sum of "
+          "all untouched kernels):")
+    for tg in arms:
+        vals = [q * grand / r for q, r in zip(arm_qmv[tg][4], ref[tg])]
+        norm[tg] = summarize(vals) + (vals,)
+        m, sd, sem, n = norm[tg][:4]
+        print(f"  TG={tg:<4} ref={statistics.mean(ref[tg]):9.1f} us/step  "
+              f"qmv_norm={m:8.2f} +- {sd:4.2f} (sem {sem:4.2f})")
+    nbase = norm[64][0]
+    for tg in arms:
+        if tg == 64:
+            continue
+        m, sd, sem = norm[tg][:3]
+        d = m - nbase
+        dsem = (sem**2 + norm[64][2] ** 2) ** 0.5
+        pred = PREDICTED[tg] * nbase
+        print(f"  TG={tg:<4} delta_norm={d:+7.2f} +- {dsem:.2f} us/step "
+              f"({d / nbase * 100:+6.2f}%)  phi_norm={d / pred:+.3f} "
+              f"[{(d - 1.96 * dsem) / pred:+.3f}, "
+              f"{(d + 1.96 * dsem) / pred:+.3f}]")
+
+    if 128 in norm and 256 in norm:
+        db, dc = norm[128][0] - nbase, norm[256][0] - nbase
+        sb = (norm[128][2] ** 2 + norm[64][2] ** 2) ** 0.5
+        sc = (norm[256][2] ** 2 + norm[64][2] ** 2) ** 0.5
+        r = dc / db
+        print(f"  delta_norm(C)/delta_norm(B) = {r:+.2f} +- "
+              f"{abs(r) * ((sb / db) ** 2 + (sc / dc) ** 2) ** 0.5:.2f}")
+
     # Granularity predicts delta(C)/delta(B) = 23.08/7.69 = 3.0 exactly; a
     # threadgroup-size step instead predicts a ratio near 1.
     if 128 in arm_qmv and 256 in arm_qmv:
