@@ -26,12 +26,13 @@ Host: Apple M4 Pro, 20 GPU cores, 48 GiB. All levels are `--local-submit`, 1023 
 | F4 | r94 decode-residue ledger byte overcount | correction to another student's artefact | proven, arithmetic | §4 |
 | F5 | order artefacts land in the **intercept**, not the slope, on a rotation design | methodological | proven by self-test | §2.6 |
 | F6 | byte→time transfer τ = **+0.780 [+0.727, +0.833]** (honest band [0.73, 1.08]) | reusable calibration | measured, 35 runs | §2.2 |
-| F7 | o_proj geometry `rps 4→2`: **−79.4 µs/token = −0.885 % decode** | **positive, LANDED**; byte model falsified *by sign* (occupancy-limited, not bandwidth-limited) | **M4-proven, M5-pending**: CI95 [−87.8, −71.1] excludes 0, 8/8 blocks, control covers 0, single golden across 24+1 runs — but every second of it is M4 Pro | §5 |
+| F7 | o_proj geometry `rps 4→2`: **−79.4 µs/token (Stage 1) / −82.4 µs (Stage 2) = −0.885 % / −0.919 % decode** | **positive, LANDED**; byte model falsified *by sign* (latency-limited, not bandwidth-limited) | **M4-proven, M5-pending**: replicated in two independent sessions, both CI95 exclude 0 ([−87.8, −71.1] then [−98.6, −66.3]), 14/14 blocks negative, byte-identical control covers 0, one greedy golden across 48+3 runs — but every second of it is M4 Pro | §5 |
+| F7b | the win is **per-core simdgroup parallelism**, not threadgroup count: `N42` holds 256 threadgroups and still wins −83.8 [−106.3, −61.4] | mechanism attribution; refutes the historically non-transferring tg-count/occupancy-quantization model for this change | proven by a 4-arm pre-registered discriminating ladder; benefit saturates at ≈51 simdgroups/core, so `rps=1` is worse locally and is the sharp M5-only probe | §5.7.1 |
 | F8 | `sliding_fused_attn_ring_v1` dispatches **32 threadgroups on 20 cores** | hand-off, static + profile evidence | proven by dispatch dump, unmeasured | §6 |
 
 ### 0b. Corrections log — things I published and then had to take back
 
-Nine of them. I am listing them together, in one place, because a campaign that only ever
+Ten of them. I am listing them together, in one place, because a campaign that only ever
 publishes numbers that survive is a campaign that is not checking its own numbers.
 
 | # | what was wrong | direction of the error | where |
@@ -45,16 +46,20 @@ publishes numbers that survive is a campaign that is not checking its own number
 | C7 | **C6 was applied to the prose but not to the §5.4 design table, the knob's doc comment, or the "longest wall clock in the array (167 s)" claim** (the array maximum is `C` block 5 at 169 s). Three stale artefacts of my own correction, found by a commissioned red-team pass, not by me. | neutral arithmetically; against me procedurally — a corrections log is worthless if the correction is not propagated | §5.4, `LagunaOProjGeometry.swift` |
 | C8 | **§5.6's headroom arithmetic was priced from a re-derived 354 MB/step DRAM ledger on *stock* scale planes**, which is incoherent with the shipped pairwise tree: it implies ~254 GB/s achieved next to a quoted 90.9 %, and leaves ~39 µs of headroom — *less than the 79.4 µs win it was supposed to justify*. Withdrawn; re-based on Stage 0 §0e's own published 76.5 µs (sibling parity) / 153.6 µs (peak). | **strongly against me**: the version I first wrote was self-refuting. The re-based version is also *better* evidence, because 79.4 µs matches a pre-ladder Stage-0 figure to 4 % | §5.6 |
 | C9 | **Achieved-bandwidth mislabel.** The plane time 101.8 µs/step is `24.02/236.0`, not `24.02/235.6` (= 101.95); the C3 factor is `256.7/236.0 = 1.088`, not 1.090. 235.6 is the *escape-free* census (735.8 MB), 236.0 the escape-corrected one (737.1 MB) — same kernels, same 3123.3 µs/step. | **no reported digit moves**; the τ-ceilings are evaluated at peak and contain no achieved rate at all. Logged anyway because a silently-wrong scale label is exactly how C2 grew into C3 one document later. | note in §1.2 above, vs `nezuko-r117-stage0b-byte-dose-ruler.md:372` |
+| C10 | **Two claims that Stage 2 and the oracle falsified after I had published them.** (a) The knob's own doc comment attributed the win to threadgroup count — "halving the rows per simdgroup doubles the threadgroup count from 256 to 512 … the kernel is occupancy-limited here". The `N42` arm holds 256 threadgroups and wins the *same* −83.8 µs, so the operative variable is resident simdgroups per core, not the launch grid. (b) §8's reproduction block asserted the oracle's expected output as `EQUIVALENCE_EXIT=0`, written before I had ever run it; it exits **1** on prefill. | (a) cuts **for** me on transfer — tg-count was the historically non-transferring mechanism and it is now the one that is refuted — but **against** me on discipline, because I had published a mechanism sentence the ladder had not yet earned; (b) is squarely against me: I documented an expected pass instead of a measurement | §5.7.1, §5.7.2, §8, `LagunaOProjGeometry.swift` |
 
 
 They do not all point the same way, which is the point. **C1 and C4 cut against me**: C1 made
 the surviving plane bigger than I first claimed (more nominal headroom, so a weaker floor
 argument), and C4 destroyed the premise of my own Stage-1 arm. **C3 cuts for me**: the ceiling
 is lower than I published, so `N-ATTN-BYTE-FLOOR` is stronger than the version I first wrote
-down. **C9 cuts neither way** — it moves no published digit at all. If I were only correcting
-errors that flattered me, C1 and C4 would not be on this list; if I were only correcting errors
-that embarrassed me, C3 would not be; and if I were only logging corrections that changed a
-number, C9 would not be.
+down. **C9 cuts neither way** — it moves no published digit at all. **C10 cuts both ways at
+once**: the mechanism I had asserted too early turned out to be the *wrong* one, and the right
+one is better for transfer than the one I had claimed. If I were only correcting errors
+that flattered me, C1 and C4 would not be on this list; if I were only correcting errors
+that embarrassed me, C3 would not be; if I were only logging corrections that changed a
+number, C9 would not be; and if I were only logging corrections that survived contact with
+new data, C10 would not be.
 
 The one number that never moved is the estimator output itself: **τ = +0.780 [+0.727, +0.833]**
 is defined on the 256.7 GB/s peak scale (`BW=256.7`) and was correct as first published — the
@@ -689,7 +694,142 @@ excluding zero the default reverts to `rps=4` and F7 is reported as a non-result
 locally and shipping a locally-worse arm on cross-machine extrapolation is
 exactly what the briefing forbids.
 
-<!--STAGE2-RESULT-->
+#### 5.7.1 Stage 2 result — Band 1, and the tg-count model is refuted
+
+Session `20260811T062958Z`, head `1d682dbd36cc`, 4 arms × 6 blocks = 24 runs, one
+binary, every run `passed=true`, a **single** greedy golden
+`f49e4c2c…b03d2` across all 24, 0 failures. Raw TSV:
+`research/data/nezuko-r117-stage2-oproj-mechanism-20260811T062958Z.tsv`.
+W&B `twoxtukc`.
+
+| arm | n | µs/token | sd | vs `C4` | CI95 | % decode | p |
+|---|---|---|---|---|---|---|---|
+| `C4` (ref) | 6 | 8971.844 | 9.146 | — | — | — | — |
+| **`R2`** (shipped) | 6 | 8889.426 | 11.551 | **−82.418** | **[−98.559, −66.277]** | **−0.9186 %** | 0.0312 |
+| `R1` | 6 | 8917.153 | 5.452 | −54.691 | [−63.675, −45.708] | −0.6096 % | 0.0312 |
+| **`N42`** | 6 | 8888.018 | 13.309 | **−83.827** | **[−106.271, −61.382]** | **−0.9343 %** | 0.0312 |
+
+All three intervals exclude zero; each arm is negative in 6/6 blocks; p = 0.0312
+is the two-sided sign-test floor at n=6. Prefill diagnostics are neutral on every
+arm and every within-block position OLS slope covers zero, so this is not an
+order artefact (F5).
+
+`R2 − C4 = −82.418`, CI `[−98.6, −66.3]`, replicates Stage 1's `−79.431`,
+CI `[−87.8, −71.1]`, on a different session and a different block count. The
+pre-committed revert condition in §5.7 is therefore not triggered and the
+shipped default stays `rps=2, ns=2`.
+
+**Verdict: Band 1** (`N42 − C4 ≤ −55`), and not marginally — `N42` is the
+*largest* win in the array. `N42` holds the reference's 256 threadgroups while
+carrying `R2`'s 1024 simdgroups and `R2`'s +314.6 MB, and it reproduces `R2`'s
+win to within 1.4 µs, with intervals that all but coincide. So:
+
+- **The operative variable is per-core simdgroup parallelism** — memory-level
+  parallelism, i.e. how many independent load streams are in flight per core —
+  **not threadgroup count and not dispatch placement.** Mechanism 2, the
+  historical non-transferring failure mode (the prior case that went +7.32 % on
+  M4 and ≈0 % on M5), is *refuted for this change* rather than merely argued
+  against.
+- **Mechanism 3 (bytes) stays falsified by sign**, now twice over: `R2` and
+  `N42` both add 314.6 MB/step and both win.
+- `ns` is free. Doubling threads/threadgroup from 64 to 128 at fixed `rps`
+  costs nothing measurable, which is itself the cleanest statement that the
+  kernel is latency-bound rather than launch-bound here.
+
+**Adjudication against the pre-registered §15.3 predictions:**
+
+- **Model C (tg-count only) is refuted.** It predicted `N42 − C4` in `0 … +69`;
+  observed `−83.8`, CI `[−106.3, −61.4]`. It also missed `R1` (predicted −75, CI
+  excludes it).
+- **Model B (+placement) is refuted.** It predicted `N42 − C4 = −43.4`, outside
+  the observed interval, and `R1 − C4 = −110.3` against an observed `−54.7`.
+- **Model A is structurally right and quantitatively wrong.** It uniquely
+  predicted `N42 ≈ R2`, which is what happened, but it understated both by
+  ≈25 % and mispredicted `R1` (−64.3 against −54.7 measured, i.e. it did not
+  anticipate saturation). I am not refitting it here; a two-term fit that gets
+  the structure right and the magnitude wrong should be reported as such, not
+  tuned until it agrees with the data it was supposed to predict.
+
+**Non-monotonicity — an interior optimum, not an edge.** `R1` doubles simdgroups
+again (2048) and is *clearly worse* than `R2` (−54.7 vs −82.4, non-overlapping
+in the block-paired sense). The latency-hiding benefit saturates around 1024
+simdgroups = **51.2 simdgroups/core on 20 cores**, while the activation re-read
+cost keeps rising linearly (+943.7 MB at `rps=1`). That is a genuine interior
+optimum in the parallelism variable, which is why the byte model alone could
+never have found it and why the ladder had to be run rather than reasoned.
+
+**The sharp M5 prediction, and why I am not acting on it.** The optimum sits at
+≈51 simdgroups/core. On M5's 40 cores the shipped `rps=2` delivers only 25.6
+simdgroups/core — *M4's starved default* — whereas `rps=1` delivers 2048
+simdgroups = **51.2/core, exactly the segment measured optimal here**, and its
+3× byte cost is priced against a wider memory system. `rps=1` is therefore the
+highest-value single M5-only probe on this board, and the knob already ships it
+as one env token. **I am not shipping it**: it is measured *worse* on the only
+machine I have, and the landing rule is a verified positive interval on measured
+evidence, not a cross-machine extrapolation. Handing the advisor a one-token
+probe with a pre-stated prediction is the correct form of this result.
+
+**Upstream-equivalence oracle.** Run at the shipped default via
+`research/run_upstream_equivalence.sh` (zero tolerance, the harness's own
+default). All **8 decode steps report `maximumAbsoluteLogitError` exactly 0**,
+and runtime and upstream argmax agree on every one of the 9 steps. The single
+non-zero step is **prefill** (0.125 max, 0.0119 mean), which this change does not
+touch — the fused o_proj path is gated on a 1-row activation at
+`LagunaRuntimeModel.swift:4602` — and which reproduces identically with the
+geometry env-pinned back to `rps=4`, the pre-R117-C pipeline. Prefill drift
+against the vendored oracle on this non-M5 host is a property of the inherited
+frontier base, not of F7; §5.7.2 records the control.
+
+#### 5.7.2 The equivalence oracle fails at zero tolerance — on prefill, at BASE, identically
+
+I am reporting a **red** correctness instrument, because it is red, and then
+showing exactly what it indicts.
+
+`research/run_upstream_equivalence.sh` exits 1 at the shipped default. The
+tolerance is `0`, and that zero is the *trusted test's own default*
+(`Tests/MLXFastTests/LagunaCorrectnessTests.swift:236-237`), not a stricter
+setting I chose. Logs:
+
+| run | geometry | kernel | prefill max / mean | decode steps exact | argmax agreement | exit |
+|---|---|---|---|---|---|---|
+| `research/data/nezuko-r117-equivalence-shipped-rps2.log` | shipped `rps=2, ns=2` | `…_rps2ns2` | 0.125 / 0.011933609 | **8 / 8** | 9 / 9 | 1 |
+| `research/data/nezuko-r117-equivalence-control-rps4.log` | `DARKBLOOM_OPROJ_ROWS_PER_SIMDGROUP=4` | `…` (empty suffix) | 0.125 / 0.011933609 | **8 / 8** | 9 / 9 | 1 |
+
+The two JSON reports are **byte-identical** — I diffed them, not eyeballed them.
+`rps=4, ns=2` is the empty-suffix branch of
+`lagunaOProjRowsPerSimdgroupSuffix`, i.e. the pre-R117-C shipped pipeline, so the
+control is the unchanged base o_proj path in the same binary. This is the
+procedure the wrapper itself prescribes ("on a non-M5 host, compare the unchanged
+BASE_SHA before attributing drift") and the procedure `AGENTS.md` prescribes for
+a non-M5 host disagreeing with an oracle.
+
+Two conclusions, and they point in opposite directions:
+
+1. **F7 is exonerated, and more strongly than my structural argument managed.**
+   §5.1 argued bit-exactness from the summation order; §5.5 argued prefill
+   inertness from the 1-row gate. The oracle now *measures* both: every decode
+   step is exactly 0 against upstream under **both** geometries, so the two
+   geometries agree with each other to exactly 0 at the **logit** level — not
+   merely at the greedy-token level the 48 ladder runs established. And the
+   prefill number is unchanged to the last digit, which is what "structurally
+   untouched" is supposed to look like when you actually check it.
+2. **The inherited frontier base does not pass this oracle at zero tolerance on
+   this host.** Prefill is off by 0.125 max, 0.0119 mean, with argmax still
+   correct. I did not introduce it and I cannot fix it inside this assignment's
+   scope, but I will not file it as a clean pass either. 0.125 is one bf16
+   quantum at this logit magnitude and the mean is ~10⁻²; it reads like an
+   accepted prefill-precision change somewhere in the promoted frontier, and on
+   M4 Pro the `_nax` prefill kernels are unreachable anyway (Apple GPU
+   generation 16), so the M5 result is authoritative and this host cannot settle
+   it. **Flagging it for the advisor as a base-level question, not an F7
+   question.** If it is genuinely a frontier regression rather than an accepted
+   envelope, it belongs to whoever owns the prefill path; if it is accepted, the
+   wrapper's zero default is too strict for local use on this generation and
+   should say so.
+
+What I am *not* claiming: I am not claiming the oracle passed. It did not. I am
+claiming the failure is invariant to my change, proved by a byte-identical
+control report, and confined to the one step my change provably cannot reach.
 
 ---
 
@@ -925,7 +1065,12 @@ tests and still exits 0, which the script detects by requiring the report marker
 
 ```
 bash research/run_upstream_equivalence.sh
-# -> EQUIVALENCE_EXACT_STEPS=<n>   EQUIVALENCE_EXIT=0
+# actual on this M4 Pro host, shipped default:
+# -> EQUIVALENCE_EXACT_STEPS=8   EQUIVALENCE_EXIT=1   (prefill 0.125, decode 8/8 exact)
+
+# the control that attributes it: same binary, pre-R117-C o_proj pipeline
+DARKBLOOM_OPROJ_ROWS_PER_SIMDGROUP=4 bash research/run_upstream_equivalence.sh
+# -> byte-identical JSON report; see §5.7.2
 ```
 
 **W&B publication** (raw per-run rows plus every ordered pairwise contrast):

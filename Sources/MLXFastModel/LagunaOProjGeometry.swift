@@ -34,11 +34,22 @@ import Foundation
 ///
 /// The default is 2, not the historical 4: on a 20-core M4 Pro a blocked,
 /// interleaved 8-block ladder measured 2 at -79.4 us/token, CI95 [-87.8,
-/// -71.1], against a byte-identical control whose interval covered zero. The
-/// kernel is occupancy-limited here, not bandwidth-limited -- halving the rows
-/// per simdgroup doubles the threadgroup count from 256 to 512 and adds activation
-/// re-reads, and it still wins, which is why the byte model predicted the
-/// wrong sign. See research/nezuko-r117-c-final-report.md F7.
+/// -71.1], against a byte-identical control whose interval covered zero, and an
+/// independent 4-arm session replicated it at -82.4, CI95 [-98.6, -66.3]. The
+/// kernel is latency-limited here, not bandwidth-limited: halving the rows per
+/// simdgroup adds activation re-reads and still wins, which is why the byte
+/// model predicted the wrong sign.
+///
+/// The operative variable is **resident simdgroups per core**, not the launch
+/// grid. `rps=2, ns=4` keeps the historical 256 threadgroups while doubling
+/// simdgroups to 1024, and it wins the same -83.8 us, CI95 [-106.3, -61.4]; so
+/// threadgroup count and dispatch placement are both refuted as the cause. The
+/// benefit also saturates -- `rps=1` doubles simdgroups again to 2048 and is
+/// clearly worse (-54.7) while tripling the extra activation traffic -- which
+/// puts the optimum in the interior at ~51 simdgroups/core on 20 cores.
+/// On a 40-core M5 that same ratio is reached by `rps=1`, not `rps=2`, so
+/// `rps=1` is the one probe worth an official run even though it is measured
+/// worse here. See research/nezuko-r117-c-final-report.md F7, F7b.
 let lagunaOProjRowsPerSimdgroup: Int = {
     guard
         let raw = ProcessInfo.processInfo.environment[
@@ -68,6 +79,11 @@ let lagunaOProjRowsPerSimdgroup: Int = {
 /// `rps=8` wins and `ns=4` does not, the win is reuse. If both move together,
 /// the effect is tail quantization across the 20-core GPU and has nothing to do
 /// with bytes. Without this control the ladder confounds the two perfectly.
+///
+/// Measured: at `rps=2` this knob is free. Going `ns=2 -> 4` halves the
+/// threadgroup count back to the historical 256 and doubles threads per
+/// threadgroup from 64 to 128, and costs nothing (-83.8 us vs -82.4, intervals
+/// nearly coincident). That is what isolated the win to simdgroup residency.
 ///
 /// `DARKBLOOM_OPROJ_SIMDGROUPS` accepts 2 (default, shipped) or 4. 1 is
 /// deliberately rejected: the gated-affine prologue fills a threadgroup array
