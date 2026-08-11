@@ -103,7 +103,10 @@ def main():
             "R117-C stage 1: o_proj rowsPerSimdgroup ladder, amendment 14. "
             "Primary contrast R2-G4 (both env-gated); byte-identical negative "
             "control C-G4. benchmark.sh --local-submit, blocked and interleaved."),
-        tags=["r117", "nezuko", "oproj-geometry", "local-submit", "paired"],
+        # WANDB_TAGS lets a later round reuse this logger without mislabelling
+        # its run as r117 (used by R125-B).
+        tags=(os.environ["WANDB_TAGS"].split(",") if os.environ.get("WANDB_TAGS")
+              else ["r117", "nezuko", "oproj-geometry", "local-submit", "paired"]),
         config={
             "instrument": "research/maple-nezuko-r107j-certify.sh",
             "mode": "--local-submit",
