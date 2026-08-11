@@ -1,6 +1,8 @@
+import Dispatch
+import Foundation
 import MLX
 import MLXFast
-import MLXLMCommon
+@testable import MLXLMCommon
 import Testing
 
 private let physicalSidecarPrefixesKernel = MLXFast.metalKernel(
@@ -37,6 +39,170 @@ struct RouteSorterPropertyTemporaryTests {
                 check(keys: keys, name: name, repetition: repetition)
             }
         }
+    }
+
+    @Test func pairedSorterTiming() throws {
+        let capturePath = "/tmp/f322-pr738-real-route-c3999cf6.csv"
+        let capture = try String(contentsOfFile: capturePath, encoding: .utf8)
+        let realKeys = capture.split { character in
+            character == "," || character == "\n" || character == "\r"
+                || character == " " || character == "\t"
+        }.compactMap(UInt32.init)
+        #expect(realKeys.count == routeCount)
+        #expect(realKeys.allSatisfy { $0 < 256 })
+        guard realKeys.count == routeCount, realKeys.allSatisfy({ $0 < 256 }) else {
+            return
+        }
+
+        let distributions: [(name: String, indices: MLXArray)] = [
+            ("real-route", MLXArray(realKeys)),
+            ("balanced", MLXArray((0 ..< routeCount).map { UInt32($0 % 256) })),
+            ("concentrated", MLXArray(Array(repeating: UInt32(17), count: routeCount))),
+        ]
+        let forward = F322RouteSorterTimingArm.allCases
+        for distribution in distributions {
+            for arm in forward {
+                for _ in 0 ..< 20 {
+                    evaluateSorter(distribution.indices, arm: arm)
+                }
+            }
+        }
+
+        let invocationsPerBlock = 128
+        let cycles = 128
+        var rawBlockNanoseconds: [String: [UInt64]] = [:]
+        for cycle in 0 ..< cycles {
+            let orderName = cycle.isMultiple(of: 2) ? "forward" : "reverse"
+            let arms = cycle.isMultiple(of: 2) ? forward : Array(forward.reversed())
+            for distribution in distributions {
+                for arm in arms {
+                    let elapsed = timeSorterBlock(
+                        distribution.indices,
+                        arm: arm,
+                        invocations: invocationsPerBlock)
+                    rawBlockNanoseconds[
+                        timingKey(
+                            distribution: distribution.name,
+                            order: orderName,
+                            arm: arm),
+                        default: []
+                    ].append(elapsed)
+                }
+            }
+        }
+
+        var summaries: [String: [String: Double]] = [:]
+        for (key, samples) in rawBlockNanoseconds {
+            let values = samples.map(Double.init)
+            summaries[key] = [
+                "median_ns": median(values),
+                "mad_ns": medianAbsoluteDeviation(values),
+                "min_ns": Double(samples.min() ?? 0),
+                "max_ns": Double(samples.max() ?? 0),
+            ]
+        }
+
+        var metrics: [String: [String: Double]] = [:]
+        for distribution in distributions {
+            let persistentSpeedup = pairedRatios(
+                distribution: distribution.name,
+                numerator: .stable32,
+                denominator: .persistent1,
+                raw: rawBlockNanoseconds)
+            let unorderedSpeedup = pairedRatios(
+                distribution: distribution.name,
+                numerator: .stable32,
+                denominator: .unordered32,
+                raw: rawBlockNanoseconds)
+            let persistentVersusUnordered = pairedRatios(
+                distribution: distribution.name,
+                numerator: .unordered32,
+                denominator: .persistent1,
+                raw: rawBlockNanoseconds)
+            let persistentRegression = pairedRatios(
+                distribution: distribution.name,
+                numerator: .persistent1,
+                denominator: .stable32,
+                raw: rawBlockNanoseconds)
+            metrics[distribution.name] = [
+                "persistent_vs_stable_speedup_median": median(persistentSpeedup),
+                "unordered_vs_stable_speedup_median": median(unorderedSpeedup),
+                "persistent_vs_unordered_speedup_median": median(persistentVersusUnordered),
+                "persistent_vs_stable_regression_median": median(persistentRegression) - 1,
+            ]
+        }
+
+        let payload: [String: Any] = [
+            "capture_path": capturePath,
+            "capture_sha256": "04eb1bccf1016e61151ac3c58cf93fb24b0fb0c68444c56a850f14ad76357753",
+            "route_count": routeCount,
+            "warmups_per_arm_distribution": 20,
+            "invocations_per_block": invocationsPerBlock,
+            "cycles": cycles,
+            "cycles_per_order": cycles / 2,
+            "raw_block_ns": rawBlockNanoseconds,
+            "summaries": summaries,
+            "metrics": metrics,
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+        print("F322_SORTER_TIMING_JSON=\(String(data: data, encoding: .utf8)!)")
+    }
+
+    private func evaluateSorter(_ indices: MLXArray, arm: F322RouteSorterTimingArm) {
+        let result = f322RouteSorterTiming(indices, arm: arm)
+        eval(result.rowOrder, result.sortedKeys, result.inverseOrder)
+    }
+
+    private func timeSorterBlock(
+        _ indices: MLXArray,
+        arm: F322RouteSorterTimingArm,
+        invocations: Int
+    ) -> UInt64 {
+        let start = DispatchTime.now().uptimeNanoseconds
+        for _ in 0 ..< invocations {
+            evaluateSorter(indices, arm: arm)
+        }
+        return DispatchTime.now().uptimeNanoseconds - start
+    }
+
+    private func timingKey(
+        distribution: String,
+        order: String,
+        arm: F322RouteSorterTimingArm
+    ) -> String {
+        "\(distribution)/\(order)/\(arm.rawValue)"
+    }
+
+    private func pairedRatios(
+        distribution: String,
+        numerator: F322RouteSorterTimingArm,
+        denominator: F322RouteSorterTimingArm,
+        raw: [String: [UInt64]]
+    ) -> [Double] {
+        ["forward", "reverse"].flatMap { order in
+            let numeratorSamples = raw[
+                timingKey(distribution: distribution, order: order, arm: numerator)] ?? []
+            let denominatorSamples = raw[
+                timingKey(distribution: distribution, order: order, arm: denominator)] ?? []
+            return zip(numeratorSamples, denominatorSamples).map {
+                Double($0.0) / Double($0.1)
+            }
+        }
+    }
+
+    private func median(_ values: [Double]) -> Double {
+        guard !values.isEmpty else { return .nan }
+        let sorted = values.sorted()
+        let midpoint = sorted.count / 2
+        if sorted.count.isMultiple(of: 2) {
+            return (sorted[midpoint - 1] + sorted[midpoint]) / 2
+        }
+        return sorted[midpoint]
+    }
+
+    private func medianAbsoluteDeviation(_ values: [Double]) -> Double {
+        let center = median(values)
+        return median(values.map { abs($0 - center) })
     }
 
     private func check(keys: [UInt32], name: String, repetition: Int) {

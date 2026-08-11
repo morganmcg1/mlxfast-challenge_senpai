@@ -262,19 +262,23 @@ private final class F322RouteCaptureState: @unchecked Sendable {
 private let f322RouteCaptureState = F322RouteCaptureState()
 
 private func makeRouteFusedScatterKernel(
-    expertBoundsSidecar: Bool
+    expertBoundsSidecar: Bool,
+    unorderedScatter: Bool = false
 ) -> MLXFast.MLXFastKernel {
     let m = routeFusedScatterTopK
     let expertBoundsValue = expertBoundsSidecar ? "true" : "false"
+    let unorderedScatterValue = unorderedScatter ? "true" : "false"
     let expertBoundsSuffix = expertBoundsSidecar ? "_eb_1" : ""
+    let unorderedScatterSuffix = unorderedScatter ? "_unordered_1" : ""
     return MLXFast.metalKernel(
-        name: "mlx_lm_route_csort_scatter_fused_m\(m)_u32_v5\(expertBoundsSuffix)",
+        name: "mlx_lm_route_csort_scatter_fused_m\(m)_u32_v5\(expertBoundsSuffix)\(unorderedScatterSuffix)",
         inputNames: ["keys"],
         outputNames: ["row_order", "sorted_keys", "inverse_order"],
         source: """
             constexpr uint TILE = \(routeSortTile);
             constexpr uint M = \(m);
             constexpr bool EXPERT_BOUNDS_SIDECAR = \(expertBoundsValue);
+            constexpr bool UNORDERED_SCATTER = \(unorderedScatterValue);
             constexpr uint EXPERT_BOUNDS_MARKER_WORDS = 16;
             constexpr uint SORTED_KEYS_OFFSET =
                 EXPERT_BOUNDS_SIDECAR ? EXPERT_BOUNDS_MARKER_WORDS : 0;
@@ -363,8 +367,26 @@ private func makeRouteFusedScatterKernel(
                 simd_base += simd_totals[s];
             }
             uint global_base = simd_base + lane_excl;
-            uint off = global_base +
-                atomic_load_explicit(&tg_before[k], memory_order_relaxed);
+            uint tile_base = atomic_load_explicit(
+                &tg_before[k], memory_order_relaxed);
+            if (UNORDERED_SCATTER) {
+                threadgroup atomic_uint tg_cursor[256];
+                atomic_store_explicit(
+                    &tg_cursor[k], global_base + tile_base,
+                    memory_order_relaxed);
+                threadgroup_barrier(mem_flags::mem_threadgroup);
+                if (k < TILE) {
+                    uint idx = t * TILE + k;
+                    uint key = keys[idx];
+                    uint unordered_off = atomic_fetch_add_explicit(
+                        &tg_cursor[key], 1u, memory_order_relaxed);
+                    row_order[unordered_off] = idx / M;
+                    sorted_keys[SORTED_KEYS_OFFSET + unordered_off] = key;
+                    inverse_order[idx] = unordered_off;
+                }
+                return;
+            }
+            uint off = global_base + tile_base;
             for (uint i = 0; i < TILE; ++i) {
                 uint idx = t * TILE + i;
                 if (keys[idx] == k) {
@@ -381,24 +403,30 @@ private func makeRouteFusedScatterKernel(
 
 private let routeFusedScatterKernel = makeRouteFusedScatterKernel(
     expertBoundsSidecar: false)
+private let routeFusedScatterUnorderedKernel = makeRouteFusedScatterKernel(
+    expertBoundsSidecar: false, unorderedScatter: true)
 private let routeFusedScatterExpertBoundsKernel = makeRouteFusedScatterKernel(
     expertBoundsSidecar: true)
 
 private func routeCountingSortFused(
-    _ indices: MLXArray, m: Int, expertBoundsSidecar: Bool
+    _ indices: MLXArray,
+    m: Int,
+    expertBoundsSidecar: Bool,
+    unorderedScatter: Bool = false
 ) -> (rowOrder: MLXArray, sortedKeys: MLXArray, inverseOrder: MLXArray)? {
     let n = indices.size
     guard routeFusedScatterEnabled, routeCountingSortEnabled,
         indices.dtype == .uint32,
         n > 0, n % routeSortTile == 0,
         m == routeFusedScatterTopK,
-        !expertBoundsSidecar || n > 256
+        !expertBoundsSidecar || n > 256,
+        !expertBoundsSidecar || !unorderedScatter
     else { return nil }
     let tiles = n / routeSortTile
     let sortedKeysMarkerWords = expertBoundsSidecar ? 16 : 0
     let kernel = expertBoundsSidecar
         ? routeFusedScatterExpertBoundsKernel
-        : routeFusedScatterKernel
+        : unorderedScatter ? routeFusedScatterUnorderedKernel : routeFusedScatterKernel
     let outputs = kernel(
         [indices],
         grid: (expertBoundsSidecar ? 256 : tiles * 256, 1, 1),
@@ -415,6 +443,32 @@ private func routeCountingSortFused(
         ? asStrided(outputs[1], [n], strides: [0], offset: 16)
         : outputs[1]
     return (outputs[0], sortedKeys, outputs[2])
+}
+
+enum F322RouteSorterTimingArm: String, CaseIterable {
+    case stable32
+    case unordered32
+    case persistent1
+}
+
+func f322RouteSorterTiming(
+    _ indices: MLXArray, arm: F322RouteSorterTimingArm
+) -> (rowOrder: MLXArray, sortedKeys: MLXArray, inverseOrder: MLXArray) {
+    let indices = indices.flattened()
+    switch arm {
+    case .stable32:
+        return routeCountingSortFused(
+            indices, m: routeFusedScatterTopK, expertBoundsSidecar: false)!
+    case .unordered32:
+        return routeCountingSortFused(
+            indices,
+            m: routeFusedScatterTopK,
+            expertBoundsSidecar: false,
+            unorderedScatter: true)!
+    case .persistent1:
+        return routeCountingSortFused(
+            indices, m: routeFusedScatterTopK, expertBoundsSidecar: true)!
+    }
 }
 
 public func gatherSort(
