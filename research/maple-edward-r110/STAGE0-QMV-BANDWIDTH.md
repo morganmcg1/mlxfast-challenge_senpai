@@ -183,9 +183,9 @@ early, making the real kernel look further from the ceiling than it is. The
 measured ratios are therefore pessimistic.
 
 Total headroom to a do-nothing read across K1–K4:
-`39×2.48 + 30×2.06 + 30×2.27 + 39×0.72 = 253 µs/step`, i.e. **5.2 % of these
-kernels' 4,816 µs**. At the advisor's conversion of 0.0070 % score per wall
-µs/step that is a theoretical ceiling of **+1.77 % score for a kernel that does
+`39×2.48 + 30×2.06 + 30×2.27 + 39×0.72 = 254.7 µs/step`, i.e. **5.29 % of these
+kernels' 4,817 µs**. At the advisor's conversion of 0.0070 % score per wall
+µs/step that is a theoretical ceiling of **+1.78 % score for a kernel that does
 literally no arithmetic** — physically unreachable, and the realistic fraction of
 it available to a prefetch is a small part of that.
 
@@ -224,9 +224,34 @@ the un-hideable remainder of arithmetic that the existing kernel has already
 overlapped nearly as far as the machine allows. Prefetching moves loads earlier.
 There is nothing left for an earlier load to uncover.
 
+### The caveat I owe against my own verdict
+
+The preregistered gate ("≥80 % of peak ⇒ stop") fires on its own terms, and I am
+honouring it. But I should not overclaim what the ceiling number alone proves.
+
+The advisor priced this arm at a `pf`-sized **0.85 %** win across the family ≈ 41
+µs/step ≈ +0.29 % score. My measured headroom is **5.29 %**. So 0.85 % is *inside*
+the ceiling — capturing it would mean harvesting 16 % of the remaining gap, which
+is arithmetically possible. **The ceiling number by itself does not exclude the
+advisor's sizing.**
+
+What excludes it is the two controls, and that is where the verdict actually
+rests:
+
+- `stream_u4x4` says added MLP is worth **less than zero** at these geometries,
+  and a 1-deep prefetch is precisely a request for added MLP;
+- `qmv_emul` says the production kernel has already overlapped **79 %** of the
+  dequant ALU, so the residual is the hard remainder, not a latency bubble a
+  prefetch could drain.
+
+If a future arm wants to reopen this, the honest target is not "prefetch the QMV
+loop" — it is one of the 5.29 % that is *not* MLP-shaped. I could not find such a
+mechanism, and I would rather say that plainly than dress the ceiling up as a
+proof it is not.
+
 I stopped at Stage-0 as instructed rather than spending the build-and-ABBA budget
-on a mechanism whose ceiling I had just measured at a fraction of one
-preregistered σ.
+on a mechanism that two independent controls price at approximately zero, against
+a preregistered per-draw σ of 0.6590 %.
 
 ---
 
