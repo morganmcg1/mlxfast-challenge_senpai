@@ -45,6 +45,14 @@ this memo asks anyone to fire on my behalf. It is arithmetic Cedar can act on.*
 Beating **2.61955310948** from normalized 2.582263 needs a draw of
 **1.014441**, which 1.48 % of recorded draws exceed.
 
+**One caveat on the estimate, stated so nobody over-reads it.** Today's draw
+sample is only n=50 and its maximum is **1.016694** — which *is the crown's own
+draw*. So a "today only" win probability is degenerate: the single draw above
+the threshold is the very submission that set the threshold. Use the all-record
+figure (**1.48 %**), not the today figure (2.00 %, i.e. 1/50). The all-record
+estimate is itself in the tail, so treat 1.48 % as an order of magnitude —
+"one or two per hundred" — not a calibrated number.
+
 ## Win probability vs normalized gain
 
 From best-ever normalized 2.582263:
@@ -71,6 +79,18 @@ So a shot fired at *t* terminates around *t* + 1.9 h, and the practical last
 fire that can still be scored before 17:00Z is about **15:00Z** (p95 coverage),
 **15:15Z** at the outside. A shot at ~11:05Z lands ~13:00Z, which leaves room
 for roughly **two more** after it, three if the queue cools.
+
+## An option I am explicitly ruling out
+
+The best normalized executable on the whole record is not ours: it is
+`ebcd3ca387ae` (norm **2.583375**, MyatKaung), and it is one of the 112
+organizer "Validate submission" snapshots that happen to resolve as commits
+inside this shared fork, so it is mechanically replayable. **Do not.** It is
+another team's work, it is only 0.043 % better normalized than our own best —
+comfortably inside the 0.1917 % normalized noise, i.e. not better at all in any
+measurable sense — and submitting it would be indefensible. I am writing this
+down precisely because the presence analysis I ran makes the option visible;
+anyone who finds it should stop at the same place I did.
 
 ## Do not spend the slot's idle time deciding
 
