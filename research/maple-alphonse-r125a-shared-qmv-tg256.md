@@ -43,8 +43,9 @@ wall decode is `8210.67` vs `8209.94` µs/step, paired
 **Δ = −0.73 ± 11.41 µs/step, CI95 [−19.33, +17.86]**, 2/4 blocks and 4/8 mirror
 pairs positive; the mean-centre estimator flips the sign to `+0.99`. A flat null
 at `|Δ| < 0.015 %` of wall. This instrument is too coarse to *see* §1's
-`+4.73 µs/step` (that is `+0.058 %` of wall, four times below its SEM), so §7
-does not confirm the regression — but the `+0.38 %` gain the landing was
+`+4.73 µs/step` — that is `+0.058 %` of wall, `2.4×` below the paired SEM and
+`4.7×` below the 95 % interval half-width — so §7
+does not confirm the regression, but the `+0.38 %` gain the landing was
 premised on requires **`Δ = −41.4 µs/step`**, which sits 3.6 σ outside the
 interval. The benefit is excluded; only the sign of the (small) harm is beyond
 this instrument's reach.
@@ -526,7 +527,8 @@ and exactly half of the blocks and half of the mirror pairs fall on each side.
 
 **What this does and does not settle.** The wall instrument's paired SEM is
 about +/- 11 us/step, i.e. +/- 0.14 % of wall. The §1 kernel effect,
-`+4.73 us/step`, is `+0.058 %` of wall — *four times below this instrument's
+`+4.73 us/step`, is `+0.058 %` of wall — `2.4x` below that SEM and `4.7x` below
+the 95 % interval half-width, i.e. *below this instrument's
 resolution*. So §7 honestly cannot confirm §1's regression end to end; a real
 `+4.73 us/step` debit is invisible here and I will not claim otherwise. What §7
 does do is close the other direction with authority. The advisor's landing
