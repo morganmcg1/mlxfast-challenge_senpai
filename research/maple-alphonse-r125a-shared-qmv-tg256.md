@@ -31,6 +31,15 @@ Landing TG=256 alone therefore pays the debit and collects nothing.
 **Landing branch: none.** The branch carries the mechanism as an opt-in selector
 (`DARKBLOOM_SHARED_QMV_TG`, default `64`), so the submitted surface is
 behaviourally and dispatch-identical to the base unless the variable is set.
+That identity is textual, not merely observed: the generator gained a
+`simdgroupsPerThreadgroup: Int = 2` parameter and emits
+`uint row = tile * \(simdgroupsPerThreadgroup) + simd_group;`, which at the
+default `2` is character-for-character the base's
+`uint row = tile * 2 + simd_group;`, and the pre-existing
+`lagunaSharedSwiGLUQMVRows1HalvedKernel` keeps its original name and takes that
+default. The TG128/TG256 bodies are separate `private let` globals under
+distinct kernel names; Swift initialises globals lazily, so at the default width
+they are never referenced, never compiled, and cost nothing.
 
 **My replication (§1), 12 mirrored slots on this base:** TG=64 `289.88 ± 0.48`
 µs/step vs TG=256 `294.62 ± 0.46` µs/step, paired
