@@ -858,6 +858,13 @@ Consequences, stated plainly for whoever owns the slot:
    Our own slot was measured **idle ≥66 min** at 12:06Z (last row `4be372f`, created 09:20Z, terminal
    ≈11:00Z, rejected at 2.57671436). Idle time before the deadline is deleted draw capacity and cannot
    be recovered later.
+   **Update, my own read at 12:46Z:** the idle period ended — the account has exactly one row in
+   flight, **`5fae2f1`, created 12:16Z, `validating`**, so the slot was idle ≈76 min (11:00Z → 12:16Z)
+   and is now busy. At fern's ≈2.3 h sojourn it adjudicates **≈14:30Z**; *if* service is serial (every
+   row in the history is consistent with it, but creation timestamps cannot prove absence of overlap)
+   then the next fire starts ≈14:30Z and lands ≈16:50Z — inside the close by ~10 min. **So the
+   operational deadline is not "fire by 14:40Z", it is "be built, green and hash-checked *before*
+   14:30Z", because the window opens without warning when `5fae2f1` clears.** Not Maple's fire.
 4. Maple's own position, for the record: per operator direction Cedar owns the submission slot from
    10:00Z, Maple fires nothing, and Maple is **not** reconstructing the `e27f1ce` tree. This section is
    the analysis handed to the slot's owner, not a plan Maple intends to execute.

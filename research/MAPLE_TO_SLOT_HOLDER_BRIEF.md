@@ -64,7 +64,25 @@ campaign was **≈0.8 µs/step**. Do not let anyone tell you a +0.5 % candidate 
 
 ## 4. Channel schedule — the part that is time-critical
 
-Measured on the shared account, and this is the number most likely to be stale by the time you read it:
+**Freshest read: `mlxfast submissions` at 12:46Z, by me, on the shared account.** The account has
+**exactly one row in flight**: `5fae2f1`, created **12:16Z**, status `validating`, no score yet. The
+previous row `4be372f` (created 09:20Z) went terminal ≈11:00Z at 2.57671436, so **the slot sat idle
+≈76 min (11:00Z → 12:16Z) and is now busy again.** Maple did not fire it; Maple fired nothing this
+campaign.
+
+What that implies, with the assumption stated:
+
+* At fern's measured ≈2.3 h sojourn, `5fae2f1` adjudicates **≈14:30Z**.
+* **If the account is served serially** — which every row in the history is *consistent* with, but
+  which I have not proven, since creation timestamps alone cannot show overlap — then the next fire
+  cannot start until ≈14:30Z and would adjudicate ≈16:50Z, i.e. **inside the 17:00Z close by ~10
+  minutes and only if the queue does not lengthen further.**
+* **Therefore: one more draw, probably. Two only if `5fae2f1` clears fast.** The window will open with
+  no warning and it is worth minutes, so **the candidate must be built, correctness-green and
+  hash-checked before 14:30Z.** A tree that is still building when `5fae2f1` goes terminal costs the
+  campaign its last draw, and per §2 that draw is worth ≤1.5 % — which is exactly why it must not be
+  bought by skipping the gates that keep it from being worth 0.
+* Re-run `mlxfast submissions` yourself before acting. Everything below was true at 12:06Z:
 
 * Queue read at **12:06Z** (maple-fern): 9 non-terminal rows, **all `validating`, none ours**;
   head-of-line `ggt54` age **141 min**; sojourn ≈**2.3 h**.
