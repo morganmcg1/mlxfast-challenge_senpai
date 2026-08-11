@@ -233,6 +233,9 @@ measurement; the shipped-wall column is the b5/b4 harness, not the profile.
   - barrier period recovery: `python3 research/nezuko_r109_barrier_period.py research/armg-runs/p1/split0-A.err.gz`
     and `--diff … split0-A.err.gz split0-C.err.gz`
   - shipped-default tripwire: `./benchmark.sh --local-iterate` at HEAD
+  - upstream oracle: `bash research/run_upstream_equivalence.sh` at HEAD, and its
+    base control `bash research/nezuko_r109_equivalence_base_control.sh`
+    (swaps both submitted files to `BASE_SHA`, reruns, restores)
 - **Tests and risk-based checks run, including selected-test count.**
   - `./benchmark.sh --local-iterate` at HEAD (commit `375619b2`), exit 0,
     217 s: **`case_count = 1`, `checked_steps = 130`** (128 teacher-forced decode
@@ -243,11 +246,44 @@ measurement; the shipped-wall column is the b5/b4 harness, not the profile.
     `0 divergences`. This is the risk-based check that matters here, because it
     covers all five modes, whereas `--local-iterate` only exercises the shipped
     default.
+  - Vendored-upstream equivalence oracle — the M5 operator gate of
+    `docs/laguna-weight-contract.md` — run at HEAD by
+    `research/run_upstream_equivalence.sh`: **1 selected test**
+    (`lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled`; swift-testing reports
+    "1 test in 0 suites", and the `Executed 0 tests` line above it in the log is
+    the *XCTest* harness, which owns none of this file's tests. The wrapper also
+    fails closed with exit 3 if the report marker is missing, so a
+    zero-selection false pass is excluded.) Result: **greedy tokens match
+    upstream at all 9 steps**, **8/8 decode steps bit-exact**
+    (`maximumAbsoluteLogitError = 0`), and the single 512-token **prefill step
+    differs by 0.125 max / 0.011934 mean** absolute logit error. The oracle's
+    tolerance is exactly `0`, so it **exits 1**. I am reporting that as a
+    non-pass, not rounding it into the PASS above.
+  - **That prefill delta is pre-existing at the research base, not this arm.**
+    `research/nezuko_r109_equivalence_base_control.sh` restores both submitted
+    files to `1a6761bf…`, verifies the swap left **no** `git diff --numstat` rows
+    against the base under `Sources` (so the control binary *is* the base
+    binary), rebuilds, and re-runs the identical oracle. The report comes back
+    **byte-identical**: prefill `0.125` / `0.011933609`, all decode steps `0`,
+    the same nine token pairs, the same exit 1
+    (job `8b4df1ad-52de-40ec-8d80-23cab268756c`; HEAD run
+    `3cf24652-5b6c-4a57-83d0-72bf3844d0ae`). The trap restored `Sources` cleanly
+    (`CONTROL_SOURCES_DIRTY_AFTER_RESTORE=0`). Two independent structural reasons
+    this arm *cannot* reach prefill: the shipped default is mode `0`, which
+    returns `nil` at `guard lagunaNormFusedGateSoftplusEnabled` before any
+    dispatch is built, and in *every* mode the fused path additionally requires
+    `residual.dims(1, 1, 2048)` — a single decode token. So the honest reading is
+    that the base is not bit-exact against vendored upstream on one prefill step
+    **on this M4 host**, which is consistent with the gate being documented for
+    the M5 ("operators invoke its gated test on the M5"); it is an unresolved
+    pre-existing observation, and it is unchanged by this arm.
   - `senpai/validate-assignment-scope.sh` and `senpai/check-editable-budget.sh`
     both run and passing (quoted above).
   - Not run: the full official ranked runner (`senpai/submit-official.sh`) — by
     instruction, maple-fern (#686) is the sole submission driver.
-- **Correctness and serial-protocol verdict: PASS.**
+- **Correctness and serial-protocol verdict: PASS on every gate this arm can
+  affect**, with the one documented exception above (the M5 prefill-exactness
+  oracle, which fails identically at `BASE_SHA` and at HEAD).
   `passed_correctness = true`, `max_abs_diff = 0`, `first_failing_step = null`,
   `first_failing_case = null`, `first_failing_layer = null`, and the
   `golden_hash` at HEAD is **`b9509697…a58d7a63`, byte-identical to the
@@ -258,9 +294,12 @@ measurement; the shipped-wall column is the b5/b4 harness, not the profile.
   `num_layers = 40` all match the baseline receipt.
 - **Divergent tokens or failure category: none.** 0 divergent tokens in every
   one of the 54 timed/profiled runs above and 0 in the 130-step
-  `--local-iterate` check; `error = ""`, `partial_result = false`. All four
-  non-default modes are bit-exact against the shipped path, so nothing in this
-  arm is an accuracy trade — the refutation is purely about time.
+  `--local-iterate` check; `error = ""`, `partial_result = false`. The upstream
+  oracle likewise agrees on the **greedy token at all 9 of its steps**, at HEAD
+  and at base. All four non-default modes are bit-exact against the shipped path,
+  so nothing in this arm is an accuracy trade — the refutation is purely about
+  time. The one non-pass on record (prefill logit exactness) is a base/host
+  property with **no token divergence at all**.
 - **Peak RAM and generated-weight size: unchanged.** `peak_ram_gb = 21` and
   `weights_byte_count = 21568891382` at HEAD, identical to the baseline receipt;
   `process_resident_memory_gb = 0.025`. No weights are generated or repacked by
@@ -376,6 +415,16 @@ measurement; the shipped-wall column is the b5/b4 harness, not the profile.
   opposed to tiling shape) is wanted, `DARKBLOOM_NORM_FUSED_GATE_SP=4` is a
   zero-risk one-env-var probe: bit-exact, +43.23 µs/step on M4. Flagged for
   maple-fern; I am not submitting it.
+- **Incidental observation for whoever runs the M5 gate next** (not part of this
+  arm, and not a rule): on this M4 host the *research base itself* fails the
+  vendored-upstream oracle's exact-prefill expectation by 0.125 max absolute
+  logit error while matching every greedy token and every decode logit exactly.
+  Anyone who runs `--filter lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled`
+  on an M4 will get exit 1 and should not read it as their own regression;
+  `research/nezuko_r109_equivalence_base_control.sh` is the 30-second control
+  that settles it. Whether the delta is genuinely M4-specific or an unnoticed
+  base-vs-upstream prefill difference is **unresolved** — I did not have an M5 to
+  discriminate, and I am not claiming which.
 - **Recommendation: close.** Arm G is a dead hypothesis. Keep the file and the
   knob for the three banked rules and for reproducibility; ship no default
   change.
