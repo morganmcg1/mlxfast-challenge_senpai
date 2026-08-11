@@ -70,6 +70,57 @@ between-run drift of ±1.4–2.2 %.
 3. Disclose this incident in the R116-A terminal result either way. Do not
    silently keep the flagged cells.
 
+## Resolution of the screen incident
+
+Step 1 was run. Dropping block 2 entirely (a stricter cut than dropping the two
+flagged cells, because it also removes their same-block control) leaves the
+screen ranking intact:
+
+```
+arm     pairs  delta_us   sem      t      (blocks 1,3 only; + = slower)
+sc0        2     -18.2   23.3   -0.78
+qse0       2      -3.2    4.3   -0.75
+ns0        2       4.2   20.6    0.21
+ns2        2       6.5   19.6    0.33
+qmvse0     2       7.5   11.8    0.63
+sd0        2       9.0   43.6    0.21
+qmvsc0     2      22.4   28.1    0.80
+sfd1       2      47.2    0.5   88.50
+argmax=sc0 raw=-18.2 debias(+33.2) -> +15.0
+```
+
+Same argmax (`sc0`), same sign for every arm except `ns0`/`sd0` — both of which
+are indistinguishable from zero in either cut — and the same conclusion that the
+debiased best-of-8 argmax is positive, i.e. no screen-level win. Step 2 does not
+trigger, so no cell is re-run. Both cuts are published to W&B on the summary run
+`q0vai430` as `contrasts` and `contrasts_block2_excluded`.
+
+## Confirmation stage: two further disclosures
+
+**1. Every confirmation run rebuilds the worker, uniformly.**
+`Sources/MLXFastModel/LagunaRuntimeModel.swift` has an mtime newer than
+`.build-worker/release/mlxfast-runtime-worker` (Aug 10 17:05) with *identical
+content*: an earlier checkout touched the file without changing a byte, and a
+content-hashing SwiftPM build is then a no-op that never relinks the product.
+`swift_build_required` compares mtimes, so the condition can never clear and
+every run pays a ~20 s near-no-op build. Unlike the screen incident this is
+**symmetric** — all four arms in all eighteen blocks pay it — and
+`benchmark.sh` runs the 40 °C gate *after* the build (`log-ctl-b1.txt`: build at
+line 1, gate at elapsed 82.5 s, prefill timed at 98.0 s), so the build's heat is
+gated away rather than carried into the timed window. It is left in place
+deliberately: touching the binary mid-experiment would change conditions between
+block groups, which is worse for a paired design than a constant overhead.
+
+**2. One run lost to the host thermal gate.** `qmvsc0` block 1 aborted with
+`local GPU cool-down gate failed for prefill with status 1`; GPU temperature
+*rose* 41.4 → 43.0 °C across the 180 s budget. `passed=false`, `score=null`, and
+the log carries no `checked decode` lines, so `frieren_steady_step.py` drops the
+cell and the analyzer's within-block pairing drops that block for that arm only.
+The gate was not disabled or relaxed. The runner's resume guard tested only
+`[[ -s "${score}" ]]`, which a failed run also satisfies, so failed cells would
+have been skipped forever on a re-run; the guard now requires `"passed" : true`
+and failed cells are backfilled.
+
 ## Prevention
 
 Two conversations share this one worktree. Before any `Sources/` or `Vendor/`
