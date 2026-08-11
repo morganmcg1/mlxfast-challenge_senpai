@@ -11967,6 +11967,23 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
     @ModuleInfo(key: "model") var model: LagunaRuntimeModelInner
     @ModuleInfo(key: "lm_head") var lmHead: Linear?
 
+    /// Research-only readback of the MLX command-buffer environment as it is visible to this
+    /// process after weight loading has applied the startup memory profile. Off unless
+    /// `DARKBLOOM_ENV_READBACK=1`, so the scored path is unchanged.
+    private static func reportCommandBufferEnvironmentIfRequested() {
+        guard let flag = getenv("DARKBLOOM_ENV_READBACK"), String(cString: flag) == "1" else {
+            return
+        }
+        let names = ["MLX_MAX_OPS_PER_BUFFER", "MLX_MAX_MB_PER_BUFFER", "MLX_BFS_MAX_WIDTH"]
+        let fields = names.map { name -> String in
+            let value = getenv(name).map { String(cString: $0) } ?? "<unset>"
+            return "\(name)=\(value)"
+        }
+        let profile = getenv("DARKBLOOM_STARTUP_MEMORY_PROFILE").map { String(cString: $0) } ?? "<unset>"
+        fputs("ENVREADBACK DARKBLOOM_STARTUP_MEMORY_PROFILE=\(profile) \(fields.joined(separator: " "))\n", stderr)
+        fflush(stderr)
+    }
+
     public let configuration: LagunaConfig
 
 
@@ -11982,6 +11999,7 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
             self._lmHead.wrappedValue = Linear(config.hiddenSize, config.vocabSize, bias: false)
         }
         super.init()
+        LagunaRuntimeModel.reportCommandBufferEnvironmentIfRequested()
 
 
 
