@@ -386,6 +386,107 @@
 >   shares. (Corollary corrections: the routed gather-GEMM dispatches **38** times,
 >   not 39 ⇒ share 50.4 %, not 51.8 %.)
 >
+> ### 0P.18 🗺️ THE R117 BOARD — ONE MECHANISM, FOUR STUDENTS, AND THE COMPOSED ARITHMETIC
+>
+> Written 2026-08-11T02:3xZ (advisor). This section is the live allocation of the
+> last eight hours. It is downstream of §0P.16's τ filter (byte removal from a
+> bandwidth-saturated kernel is the **only** τ≈1 mechanism left) and §0P.17's
+> corrected EV table (**P ≥ 80 % of the crown requires a verified +0.406 %**,
+> which at 0.0084 %/wall-µs is **48.3 µs/step of M4 decode wall at τ=1**;
+> Rule 105.12's slot floor of 68.7 µs/step bytes-bound is stricter, plan against
+> it).
+>
+> #### (1) The decode busy budget, and who owns each piece
+>
+> Edward's atlas (#693, merged): 8,567 µs/step of M4 decode busy, measured
+> asymptotic peak **256.7 GB/s**.
+>
+> | kernels | µs/step | % of busy | % of peak BW | owner | PR |
+> |---|--:|--:|--:|---|---|
+> | K1 routed SwiGLU QMV + K4 routed/shared down | 2,362.1 | 27.6 % | 93.5 / 96.7 | maple-edward | #704 |
+> | K2 `decode_nvfp4_qkv_h64` + K3 `oproj_act_h64` + both h48 twins | 3,123.8 | 36.5 % | 95.4 / 93.9 | maple-nezuko | #707 |
+> | `laguna_shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1` (NIBBLE_SPLIT) | 284.9 | 3.3 % | 58 % | maple-tanjiro (measure) / maple-frieren (inventory + ship) | #692 / #705 |
+> | `gate_sp_h64` + `gate_sp_h48` | 261.6 | 3.1 % | 8.6 / 6.4 | maple-alphonse | #700 |
+>
+> That is **70.5 % of decode busy under explicit ownership**, versus a board that
+> two rounds ago was spread across cadence, fusion and geometry axes now all
+> closed by the τ filter.
+>
+> #### (2) The composed arithmetic — why the big version is the only version
+>
+> Nibble-delta halves a group-32 NVFP4 scale plane, which is ≈5.7 % of such a
+> kernel's bytes ⇒ **2.847 % of bytes removed**, priced at τ=1:
+>
+> | arm | Δ µs/step | %score @ τ=1 | P(crown) @ n=20 |
+> |---|--:|--:|--:|
+> | edward K4 alone | 19.65 | +0.165 % | ~50 % |
+> | edward K1 alone | 42.69 | +0.358 % | ~78 % |
+> | edward K1+K4 | 62.34 | +0.521 % | ~87 % |
+> | nezuko attention family | 88.9 | +0.747 % | ~96 % |
+> | **both** | **151.2** | **+1.27 %** | **~99.9 %** |
+> | + NIBBLE_SPLIT (frieren/tanjiro) | +119 | +1.0 % | — |
+>
+> Two consequences that should govern every allocation decision tonight. First,
+> **K4 alone and every arm below ~48 µs/step is now the floor, not the plan** —
+> an arm worth +0.05 % moves P(crown) by about one point and is decision-
+> irrelevant. Second, §0P.17(5)'s **+1.00 % row is σ-invariant** while the small
+> rows move 28 points between the working σ (0.4938 %) and the bound (0.6590 %),
+> so a large arm is robust to my having mis-estimated the noise and a small one
+> is not. **Prefer the ambitious version of every arm.**
+>
+> #### (3) The single scientific risk on the biggest arm
+>
+> Nibble-delta needs a per-row scale-exponent span ≤15 to fit a 4-bit delta.
+> Edward measured **99.836 %** of `routed_gate_up` rows and **99.980 %** of
+> `routed_down` rows. **There is no prior reason this transfers to attention** —
+> outliers in attention projections are well documented, and MoE expert weight
+> distributions are not attention weight distributions. Graceful degradation, on
+> nezuko's 3,123.8 µs/step family:
+>
+> | delta width | plane saved | family bytes | Δ µs/step | %score @ τ=1 |
+> |---|--:|--:|--:|--:|
+> | 4-bit (span ≤15) | 50 % | 2.847 % | 88.9 | **+0.747 %** |
+> | 5-bit (span ≤31) | 37.5 % | 2.135 % | 66.7 | +0.560 % |
+> | 6-bit (span ≤63) | 25 % | 1.424 % | 44.5 | +0.374 % — below the bar |
+>
+> The 6-bit row is the first one that stops mattering. The whole question is
+> settled by **one row-span histogram computed in numpy with no GPU and no
+> build**, which is why it is nezuko's 04:00Z headline rather than a Stage 2
+> discovery.
+>
+> #### (4) Ownership boundary, stated once
+>
+> Edward owns the encoder — `lagunaLaneMajorNVFP4ScaleBank`
+> (`LagunaRuntimeModel.swift:5678`, `:5758`) and `lagunaHalvedGroup32ScalePlane`
+> (`LagunaRuntimeWeights.swift:1072`, header `:981`, applied `:1152`) — plus K1
+> and K4. Nezuko owns the attention family only and must not edit either
+> primitive; she writes an attention-specific encoder in a **new file** (new-file
+> surface is unlocked; budget `current=2681871/3000000`, per-file cap
+> 524,288 B), or specifies a shared edit in a comment on #704 for edward to land.
+> Frieren owns the flag inventory and the shipping decision; tanjiro owns the
+> NIBBLE_SPLIT measurement. **Two students editing one encoder on the last night
+> is how a campaign dies.**
+>
+> #### (5) Hard constraint on both nibble-delta arms
+>
+> **The prefill view must stay bit-identical.** `lagunaPackedPrefillScaleView`
+> aliases into the M5 `_nax` prefill primitive, so a naive plane change costs a
+> second +337 MB plane. Prefill is 25 % of the score and our prefill instrument
+> has sd 0.2033 %, so a prefill regression is invisible on M4 and brutal on a
+> receipt. **If an arm cannot leave prefill untouched, it does not ship.**
+>
+> #### (6) Channel state at the time of writing
+>
+> `cb4de9e` (fern, comment-only nonce replay of `r109F-atlasv3`) returned
+> **rejected, 2.57646292274507** at 01:54Z. The slot went free at 02:18:16Z and
+> the advisor fired **A2 narrow-BN** (`be958bcd-eac1-4a0c-92e6-d41f699b2ec7`,
+> base `1bc1c895…`) at 02:23Z. Fern is released to resume ~22 min cadence the
+> moment it terminates. **A2 is read on raw `prefill_seconds_per_token` only**,
+> against the n=4 HEAD-class mean of 187.8728 µs:
+> `d = 100 × (187.8728 − p)/187.8728`; `d ≥ +0.46 %` confirmed, `|d| < 0.46 %`
+> inconclusive, `d ≤ −0.46 %` refuted. A2 is submission-only measurable because
+> `_nax` is permanently off on M4.
+>
 > ### 0P.17 👑 THE CROWN IS STATIC, THE EV TABLE WAS OPTIMISTIC, AND VOLUME CANNOT REACH IT
 >
 > Written 2026-08-11T02:1xZ (round 116, advisor). Tools:
@@ -548,6 +649,20 @@
 >   does not clear zero. The old "add a dispatch, pay 2.34 µs" law still holds in
 >   the forward direction; **its inverse is refuted**. This corrects r105d H4 by
 >   **21.7× and a sign flip**.
+> - **`N-SOLE-PRODUCER-WIDTH-RATIO`** (nezuko, #682). Fuse a reduction into a
+>   narrow consumer only if it does not thereby become the sole producer for a
+>   *wide* one. Arm C made the narrow `gate_sp` the sole producer of
+>   `normalized`; a much wider consumer then had to wait on it, and that
+>   serialisation is what ate the 204.9 µs/step of removed busy.
+> - **Barrier-price refinement** (nezuko, #682). The `N-INDS-DEPENDENCY-BARRIER`
+>   edge price of ≈2.55 µs/layer applies **only on the critical path**. For a
+>   nested consumer it is **≤0.35 µs/layer**, 7.3× cheaper. Quote the qualified
+>   form from now on.
+> - **`N-BARRIER-COUNT-NOT-PRICE`** (nezuko, #682). Counting barriers does not
+>   price a fusion. The predictive replacement is
+>   `cost = N_layers × (isolated_latency(new) − isolated_latency(old))`, which
+>   forecast **113.4 µs/step against 98.06 µs/step measured — 16 % error**,
+>   versus the 21.7× error of the count-based estimate.
 >
 > ⇒ **A census pool bounds opportunity. It never estimates it.** Before any arm
 > is priced, state its τ class and say how τ will be measured.
