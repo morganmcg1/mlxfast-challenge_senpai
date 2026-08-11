@@ -28,7 +28,7 @@ echo "SAFE  no tool invokes the submission CLI (execution-pattern scan clean)"
 # extract_submission_corpus.py <src> <dst>, sigma_pseudoreplicate_probe.py <path>.
 # Two acceptable no-arg behaviours: a clean usage message (preferred), or a bare
 # IndexError from argv indexing (tolerated on the older tools).
-NEEDS_ARGS="extract_results.py extract_submission_corpus.py sigma_pseudoreplicate_probe.py"
+NEEDS_ARGS="extract_results.py extract_submission_corpus.py sigma_pseudoreplicate_probe.py read_bar_from_listing.py"
 
 for f in research/tools/*.py; do
   base=$(basename "$f")
