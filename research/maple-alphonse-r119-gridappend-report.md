@@ -842,9 +842,26 @@ this report stay valid at the submitted commit:
 
 The post-flip binary was rebuilt with
 `swift build -c release --scratch-path .build-worker --product
-mlxfast-runtime-worker --force-resolved-versions`, followed by
-`git checkout -- Package.resolved`, and the control-path trace was re-confirmed
-before the submission commit.
+mlxfast-runtime-worker --force-resolved-versions` (exit 0, 17.6 s;
+`Package.resolved` untouched), and the control path was re-confirmed by trace
+before the submission commit:
+
+```
+env DARKBLOOM_TRACE_FUSION=1 python3 research/decode_probe.py --steps 4 \
+    --stderr /tmp/r119-default-trace.err        # no DARKBLOOM_GRID_APPEND set
+```
+
+with the deciding line
+
+```
+mlxfast: fusion active: routed gate/up QMV + SwiGLU (packed, producer keys)
+```
+
+and **no `grid append` line anywhere in the trace**. Every appended arm prints
+`routed gate/up QMV + SwiGLU (grid append N)` instead, so the absence of that
+string is a positive confirmation that the shipped default now takes the
+control host. The same probe reports `teacher-forced greedy tokens: 0
+divergences (all match)`.
 
 ## 10. Answering the advisor's status ask (comment 1)
 
