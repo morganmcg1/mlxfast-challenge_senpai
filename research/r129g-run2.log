@@ -1,0 +1,9 @@
+GATE budget: PASS editable budget OK: current=2712490/3000000 bytes headroom=287510 growth=0/262144 files=143 (file count is diagnostic only; base=143)
+GATE perfile: PASS largest packaged file Sources/MLXFastModel/LagunaRuntimeModel.swift 396910 B < cap 524288 B (files=143)
+GATE tree_clean: PASS packaged surface matches HEAD 4dbfd025, no uncommitted or untracked packaged files
+GATE refuted: PASS no REFUTED_DO_NOT_LAND file or marker in 143 packaged files
+GATE startup_profile: PASS override=full -> full profile on a 48 GiB host
+GATE qmv_fused: PASS DARKBLOOM_SHARED_ROUTED_QMV_FUSED=<unset> (off; on costs +55.2 us/step, #733)
+GATE nax: PASS Apple M4 Pro = GPU gen 16, macOS 26.5.2: is_nax_available() false, no _nax kernels selected
+GATE golden: PASS <golden> sha256=<sha> matches the expected fixture
+PREFLIGHT: PASS (8/8)

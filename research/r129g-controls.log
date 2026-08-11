@@ -1,0 +1,50 @@
+=== CONTROL 1: budget (total over headroom 287510, under per-file cap)
+--- CONTROL budget
+GATE budget: FAIL rc=1 editable budget: surface is at least 3032887 bytes; total limit is 3000000
+GATE perfile: PASS largest packaged file Sources/MLXFastModel/InjectedBudget.swift 400000 B < cap 524288 B (files=144)
+PREFLIGHT: FAIL (5/8)
+exit=1
+=== CONTROL 2: perfile (single file at 600000 B >= 524288 cap)
+--- CONTROL perfile
+GATE perfile: FAIL Sources/MLXFastModel/InjectedBig.swift is 600000 B >= cap 524288 B (files=144)
+PREFLIGHT: FAIL (4/8)
+exit=1
+=== CONTROL 3: tree_clean (uncommitted edit to a packaged file)
+--- CONTROL tree_clean
+GATE tree_clean: FAIL 1 uncommitted change(s) in the packaged surface:  M Sources/MLXFastModel/LagunaRuntimeModel.swift
+PREFLIGHT: FAIL (6/8)
+exit=1
+=== CONTROL 4: refuted (REFUTED_DO_NOT_LAND patch inside the packaged surface)
+--- CONTROL refuted
+GATE refuted: FAIL refuted patch present in packaged surface: named=[Sources/MLXFastModel/REFUTED_DO_NOT_LAND_tg256_swiglu_qmv.patch ] marker=[]
+PREFLIGHT: FAIL (5/8)
+exit=1
+=== CONTROL 5a: startup_profile (override=low)
+GATE startup_profile: FAIL override=low forces the low-memory profile; ranked behavior needs full
+PREFLIGHT: FAIL (6/8)
+exit=1
+=== CONTROL 5b: startup_profile (illegal value 'ful' -> preconditionFailure)
+GATE startup_profile: FAIL illegal value 'ful': resolve() preconditionFailure will abort the run (legal: auto|full|low)
+PREFLIGHT: FAIL (6/8)
+exit=1
+=== CONTROL 5c: startup_profile (unset on this 48 GiB host -> resolves LOW)
+GATE startup_profile: FAIL override=<unset> resolves to LOW on this 48 GiB host; export DARKBLOOM_STARTUP_MEMORY_PROFILE=full
+PREFLIGHT: FAIL (6/8)
+exit=1
+=== CONTROL 6: qmv_fused (=1)
+GATE qmv_fused: FAIL DARKBLOOM_SHARED_ROUTED_QMV_FUSED=1 enables the measured +55.2 us/step regression (#733)
+PREFLIGHT: FAIL (6/8)
+exit=1
+=== CONTROL 7: nax (scratch copy of the gate script with the parsed family forced to 5, i.e. an M5-class host)
+GATE nax: FAIL Apple M4 Pro is GPU gen 17 on macOS 26.5.2: is_nax_available() is TRUE, so _nax kernels are selected and this is not the gen-16 student-host regime
+PREFLIGHT: FAIL (6/8)
+exit=1
+=== CONTROL 8a: golden (expected hash provided, file matches -> PASS path)
+GATE golden: PASS /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-nezuko/tmp/r129g-golden-good.json sha256=286108efb94786d525884f7d09892dd2772acebb6fd3719bfad07735f2bfbfb9 matches the expected fixture
+PREFLIGHT: PASS (8/8)
+exit=0
+=== CONTROL 8b: golden (one byte changed -> FAIL path)
+GATE golden: FAIL /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-nezuko/tmp/r129g-golden-good.json sha256=83e2f1a829278af85b4c5cabce26f6e067a6afa5cc71d5acd06179c0495060db != expected 286108efb94786d525884f7d09892dd2772acebb6fd3719bfad07735f2bfbfb9
+PREFLIGHT: FAIL (7/8)
+exit=1
+=== controls done; scratch removed
