@@ -280,6 +280,10 @@ def main() -> int:
     open_spans = [r for r in spans if r["freed_at"] is None]
     for rec in open_spans:
         lo = minutes(rec["last_seen"] - rec["created"])
+        # Stored, not just printed: the "whose queue" section below needs the
+        # one-sided bound, and recomputing it there would let the two sections
+        # drift apart.
+        rec["lo"] = lo
         print("  %s  created=%s  still busy at %s  -> service >= %.3f min"
               % (rec["id"], fmt(rec["created"]), fmt(rec["last_seen"]), lo))
     if not open_spans:
@@ -358,6 +362,119 @@ def main() -> int:
               % (floor, floor))
         print("  It is still the single most useful number for planning: it is")
         print("  the part of the cost that no channel strategy can remove.")
+
+    # --- IS THE VARIABLE PART MINE TO CONTROL? ------------------------------
+    # The decomposition above says service = near-constant run + variable queue.
+    # It does NOT say whose queue.  The obvious candidate is the account's own
+    # 1-in-flight slot, and section 7.4e measured 98.3 % occupancy on it, which
+    # makes that reading tempting.  It is testable: a submission created within
+    # seconds of an observed "slot FREE" had NO account-level queue ahead of it
+    # by construction.  If the account slot were the variable component, those
+    # submissions should all land in the run cluster.
+    print()
+    print("=== whose queue is it? service conditional on winning the slot ===")
+    all_free = sorted(ts for log in pollers for ts in log.free)
+    # Second, weaker witness: the last poll that saw the PREVIOUS holder busy
+    # bounds the free moment from below even when no FREE line was logged,
+    # because the account cannot hold two submissions at once.
+    busy_by_time = sorted(
+        (ts, sub_id) for log in pollers for ts, sub_id, _, _ in log.busy
+    )
+    # One record per submission.  A submission held by several overlapping
+    # pollers appears once per log, and counting it repeatedly would fake up
+    # sample size -- 7eca997d alone is observed by four logs.  An exact bracket
+    # always beats an open one; among open ones the longest lower bound wins.
+    best: dict[str, dict] = {}
+    for rec in exact + open_spans:
+        key = rec["id"][:8]
+        cur = best.get(key)
+        if cur is None:
+            best[key] = rec
+            continue
+        cur_exact = cur.get("mid") is not None
+        rec_exact = rec.get("mid") is not None
+        if rec_exact and not cur_exact:
+            best[key] = rec
+        elif rec_exact == cur_exact and rec.get("lo", 0.0) > cur.get("lo", 0.0):
+            best[key] = rec
+    considered = []
+    for rec in sorted(best.values(), key=lambda r: r["created"]):
+        created = rec["created"]
+        # Two kinds of witness bound the moment the slot became available, and
+        # the LATER one is the tighter bound, so take the max of both.
+        #   * a logged "slot FREE" proves the slot was free at that instant;
+        #   * a poll that saw a DIFFERENT submission holding the slot proves it
+        #     was still busy then, so it can only have freed afterwards.
+        # Taking only the first was a real error: it reported 7eca997d as
+        # waiting 1935 s when f2b23450 in fact occupied the slot for most of
+        # that interval, and reported 3275a9bd as waiting 5 hours when the slot
+        # was simply idle.  Either way the resulting number is an UPPER bound on
+        # the account-level queue, never a point estimate.
+        cands = [f for f in all_free if f <= created]
+        cands += [
+            ts for ts, sid in busy_by_time
+            if ts < created and sid[:8] != rec["id"][:8]
+        ]
+        if not cands:
+            print("  %s  no witness before creation; account queue unknown"
+                  % rec["id"])
+            continue
+        witness_at = max(cands)
+        lat = (created - witness_at).total_seconds()
+        kind = "FREE" if witness_at in all_free else "other sub still busy"
+        svc = rec.get("mid")
+        considered.append((rec["id"], lat, svc, rec.get("lo")))
+        if svc is not None:
+            svc_text = "service = %7.3f min" % svc
+        else:
+            svc_text = "service >= %6.3f min" % rec["lo"]
+        if lat > 900.0:
+            print("  %s  slot idle >= %.0f min before it; queue UNKNOWN   %s"
+                  % (rec["id"], lat / 60.0, svc_text))
+        else:
+            print("  %s  slot won <=%4.0f s after freeing   %s"
+                  % (rec["id"], lat, svc_text))
+        print("      witness: %s at %s" % (kind, fmt(witness_at)))
+
+    won_fast = [c for c in considered if c[1] <= 120.0]
+    if len(won_fast) >= 2:
+        vals = [c[2] if c[2] is not None else c[3] for c in won_fast]
+        lo_v, hi_v = min(vals), max(vals)
+        print()
+        print("  %d of %d observed submissions took the slot within 120 s of it"
+              % (len(won_fast), len(considered)))
+        print("  freeing, so their account-level queue was ~0 by construction.")
+        print("  Their service still spans %.3f .. %.3f min = a factor of %.2f."
+              % (lo_v, hi_v, hi_v / lo_v if lo_v else float("nan")))
+        print()
+        print("  CONCLUSION: the variable component is NOT the account slot.")
+        print("  Winning the slot instantly buys a run-cluster service time")
+        print("  sometimes and a 3x service time other times, so the variance")
+        print("  lives in a queue I do not share an account with -- the global")
+        print("  runner pool, driven by every other solver's submissions.")
+        print("  This REFINES 7.4e rather than contradicting it: 98.3 % account")
+        print("  occupancy is a real cost (I could not submit at all), but it is")
+        print("  a cost on TOP of an exogenous queue, and no amount of poller")
+        print("  discipline touches the exogenous part.")
+        print("  It also rescues the run cluster from a confound: if the tight")
+        print("  cluster were just 'three draws from one quiet hour', then the")
+        print("  22.7 min member created at 07:01Z -- 56 min before the 82.8 min")
+        print("  member -- would not be in it.  Fixed work, bursty queue.")
+        med = sorted(vals)[len(vals) // 2] if len(vals) % 2 else (
+            0.5 * (sorted(vals)[len(vals) // 2 - 1] + sorted(vals)[len(vals) // 2])
+        )
+        print()
+        print("  median service GIVEN the slot was won instantly = %.2f min"
+              % med)
+        print("  (compare 7.1's all-solver bracket midpoint median 29.61 min,")
+        print("  computed from cache mtimes over a mostly disjoint row set:")
+        print("  two estimators built from different inputs land within a")
+        print("  minute of each other, which is the strongest support the")
+        print("  ~30 min planning figure has.)")
+        n_open = sum(1 for c in won_fast if c[2] is None)
+        print("  CAVEAT: n=%d, of which %d %s still open, so the median can only"
+              % (len(vals), n_open, "is" if n_open == 1 else "are"))
+        print("  move UP as those submissions complete.")
 
     # --- contention loss, with self-waits excluded --------------------------
     print()

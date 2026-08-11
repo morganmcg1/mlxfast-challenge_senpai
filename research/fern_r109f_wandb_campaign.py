@@ -9,7 +9,7 @@ dashboard is evidence-linked rather than transcribed:
      two baseline legs execute identical reference code for every solver on
      every submission, so they are a free zero-code-variance noise gauge.  Logs
      per-leg mean/sd/cv, the implied ceiling on between-package code variance,
-     the receipts-per-arm power table, and the eight self-retractions.
+     the receipts-per-arm power table, and the nine self-retractions.
 
   2. ``fern-r109f-crown-lottery``
      The draw-factor order statistic.  ``published = normalized x draw``; the
@@ -162,7 +162,18 @@ CHANNEL = {
     "after_0700_median_min": 35.49,
     "gap_median_min_own_rows": 25.14,
     "gap_p90_min_own_rows": 119.71,
+    # SUPERSEDED by CHANNEL_EXACT (section 7.4e).  This encoded a head count --
+    # three parties on one account, so a third of the slots.  Measured occupancy
+    # says otherwise: over 07:01-09:20Z a single contender held the slot 98.3 % of
+    # the time and I won 0 of 3.  A saturating contender leaves no residual
+    # capacity regardless of head count.  Kept, marked, and not silently deleted,
+    # because the number below was used in earlier planning.
     "account_share": 3,
+    "account_share_superseded_by": "channel_exact/occupancy_pct_single_contender",
+    # NOTE on n_discarded_single_gap: those 1818 rows are excluded because of
+    # snapshot sparsity, not because they are fast -- see RETRACTION 9 (7.4f).
+    # The "biased fast" phrase in the verdict below refers to something else and
+    # still stands: right-censoring by the SLOW rows biases the COMPLETED sample.
     "estimator": "interval_censored_bracket_midpoint_median",
     "verdict": (
         "service ~= inter-arrival gap, so idle ~= 0; censored median exceeds "
@@ -212,6 +223,122 @@ CHANNEL_OOS = {
         "its own band from below, so the degradation is real and ongoing"
     ),
 }
+
+# EXACT service times, from an instrument I already had and had misread (7.4).
+#
+# The submit-when-free poller logs one line every ~15 s, either
+# "slot BUSY: <id> <status> created=<iso>" or "slot FREE".  That is a 15-second
+# resolution occupancy monitor for the account slot, and I had been reading those
+# logs as launch receipts.  fern_r109f_poller_occupancy.py turns them into EXACT
+# service brackets, and they agree with the CHANNEL estimator on 4 of 4 receipts
+# despite sharing no input with it (poller stdout vs cache-file mtimes).
+#
+# The result decomposes service into a near-constant RUN plus a variable QUEUE:
+# three exact values taken hours apart, one of them not even mine, cluster at
+# mean 22.938 sd 0.1764 (cv 0.769 %), which is fixed work -- build, metallib, two
+# benchmark legs, correctness gates -- not queueing.  Subtracting the smallest
+# exact run from the rest gives the implied wait: 7eca997d 60.0 min, f2b23450
+# >=6.7, t7 >=10.0.  So what degrades under load is the queue, not the run.
+#
+# Three honesty constraints are encoded in the key names below.
+#  - A sample minimum is an UPPER bound on the population minimum, and length
+#    bias can only push observations up, so "no observed shot cost less than
+#    22.7 min" is licensed and "22.7 is a hard floor" is not.
+#  - Length bias is a mechanism, not a demonstrated distortion: the four
+#    age-at-first-sight ratios give mean 0.633 se 0.144, z=+0.92 vs 0.5.
+#  - A wait on my OWN previous submission is my own service time, so it must not
+#    be added to it.  Only foreign waits are additive, and there are two.
+CHANNEL_EXACT = {
+    "source": "poller stdout, 15 s resolution, 10 logs",
+    "n_exact": 4,
+    "n_exact_in_run_cluster": 3,
+    "run_cluster_mean_min": 22.938,
+    "run_cluster_sd_min": 0.1764,
+    "run_cluster_cv_pct": 0.769,
+    "fastest_observed_min": 22.743,
+    "slowest_observed_min": 82.789,
+    "implied_queue_wait_max_min": 60.046,
+    "tightest_bracket_s": 17,
+    "cross_check_vs_mtime_estimator": "4/4 consistent, no shared input",
+    # 1-in-flight rule as a free exact bracket: creating submission k+1 proves
+    # submission k was terminal.  Combined with the poller's >=29.444 this pins
+    # f2b23450 to [29.44, 31.11] from two independent facts.
+    "one_in_flight_upper_bound_min_f2b23450": 31.113,
+    "poller_lower_bound_min_f2b23450": 29.444,
+    # Occupancy over the contested window, which replaces account_share: 3.
+    "contested_window_utc": "2026-08-11T07:01:13Z..09:20:12Z",
+    "contested_window_min": 139.0,
+    "occupancy_pct_single_contender": 98.3,
+    "idle_pct": 1.7,
+    "slots_won_by_me": 0,
+    "slots_in_window": 3,
+    # Foreign waits only; self-waits (11.37, 12.52) are NOT additive.
+    "foreign_wait_n": 2,
+    "foreign_wait_median_min": 10.84,
+    "self_wait_excluded_min": "11.37,12.52",
+    # 7.4h: WHOSE queue is the variable component?  Not the account's.  Five of
+    # six observed submissions took the shared slot within 120 s of it freeing,
+    # so their account-level queue was ~0 by construction, and their service
+    # still spans 23.0 to 82.8 min.  The variance therefore lives in the global
+    # runner pool, which no poller discipline can touch.  The median of that
+    # conditional set, 29.44 min, lands 0.17 min from 7.1's cache-mtime median
+    # of 29.61 min -- two estimators with no shared input.
+    "slot_won_within_120s_n": 5,
+    "slot_won_within_120s_of_n": 6,
+    "given_instant_slot_service_min_lo": 22.986,
+    "given_instant_slot_service_min_hi": 82.789,
+    "given_instant_slot_spread_x": 3.60,
+    "given_instant_slot_median_min": 29.44,
+    "mtime_estimator_median_min": 29.61,
+    "two_estimator_gap_min": 0.17,
+    "queue_is_account_level": 0,
+    "length_bias_ratio_mean": 0.633,
+    "length_bias_ratio_se": 0.144,
+    "length_bias_z": 0.92,
+    "length_bias_significant": 0,
+    # Powered falsification test of the run floor (7.4f).  The naive count of
+    # excluded rows with ub < floor was 0/1818 and worthless: min(ub) = 24.89 min
+    # over the whole set, so no row could have failed it -- power 0.  Reframing
+    # to "rows observed while younger than the floor must still be running"
+    # recovers real power: 24 such observations, 24 still running, 0 scored.
+    "floor_test_naive_violations": 0,
+    "floor_test_naive_power": 0,
+    "floor_test_min_ub_min": 24.89,
+    "excluded_ub_vacuous_pct": 100.0,
+    "excluded_ub_median_min": 13850.0,
+    "floor_test_powered_n": 24,
+    "floor_test_powered_violations": 0,
+    "floor_test_proven_over_10min": 11,
+    "floor_test_proven_over_20min": 2,
+    "floor_test_strongest_lower_bound_min": 22.41,
+    "retraction_9": (
+        "section 7.1 said the 1818 single-gap rows were excluded BECAUSE they "
+        "are fast; they are excluded because of snapshot sparsity -- the bound "
+        "is vacuous for 100 % of them, median 13850 min (9.6 days)"
+    ),
+    "verdict": (
+        "service = near-constant run (22.94 min, cv 0.77 %, n=3) + variable "
+        "queue (0 to 60 min); a few-minute pipeline is firmly excluded but "
+        "'22.9 exactly' is consistent-not-pinned, and the cluster tightness "
+        "still rests on n=3; the shot budget is dominated by contention, so "
+        "MIN_PER_SHOT is deliberately NOT updated from these numbers"
+    ),
+}
+
+# The four exact brackets behind CHANNEL_EXACT, kept as rows so a reader can see
+# that three of them cluster and the fourth does not, rather than trusting the
+# summary scalars.  half_width_min is the poller's own resolution, i.e. half the
+# gap between the last "slot BUSY" and the first "slot FREE" observation, so it
+# is a measurement uncertainty and not a spread across submissions.
+# age_over_total is the age/total ratio used for the length-bias check in 7.4c;
+# owner is decided by which handle appears in the note, which is why the two
+# self-waits could be excluded from the additive contention cost in 7.4d.
+EXACT_BRACKETS = [
+    ("3275a9bd", 22.743, 1.050, 126, 0.681, "maple-advisor"),
+    ("ed40f3ee", 22.986, 0.517, 62, 0.528, "maple-fern"),
+    ("0531544b", 23.085, 0.550, 66, 0.482, "maple-fern"),
+    ("7eca997d", 82.789, 0.142, 17, 0.840, "maple-advisor"),
+]
 
 # Per-shot wall cost used for every hours-to-50% figure.  This used to be a bare
 # literal 22.0 minutes, which no measurement ever supported.  Now it is the
@@ -852,6 +979,27 @@ def run_instrument_collapse(wandb, rows, cache, dry):
         "question: do the benchmark's shapes reach the branch, and does the model "
         "call that library function at all?",
     )
+    rtab.add_data(
+        "the 1818 receipts excluded from the service-time bracket estimator are "
+        "the FAST ones, so the 29.61 min median is biased slow",
+        "RETRACTED",
+        "this was asserted from a test with zero power and reported as a "
+        "confirmation. Attempt 1 found 0 of 1818 excluded rows with an upper "
+        "bound below the 22.9 min floor and I read that as agreement; attempt 2 "
+        "killed it, because min(upper bound) over all 1818 rows is 24.89 min -- "
+        "ABOVE the floor -- so the test could not have produced a violation at "
+        "any floor value, and the median excluded upper bound is 13850 min "
+        "(9.6 days), i.e. vacuous for 100% of them. The exclusions are snapshot "
+        "sparsity (a row seen in only one snapshot has no bracket), not a speed "
+        "class. Attempt 3 restores power by testing the one thing the floor does "
+        "forbid -- a row observed at age below the floor must still be running -- "
+        "and that test passes: 24 observations, 24 still running, 0 "
+        "counter-examples, 11 of them proving >10 min and 2 proving >20 min, "
+        "strongest single lower bound 22.41 min. So a few-minute pipeline is "
+        "firmly excluded while '22.9 exactly' is consistent-but-not-pinned. New "
+        "rule: report the power of a falsification test beside its result, or "
+        "the result is not evidence.",
+    )
     gtab = wandb.Table(
         columns=[
             "axis",
@@ -985,6 +1133,11 @@ def run_crown_lottery(wandb, rows, cache, dry):
 
     summary.update({f"channel/{k}": v for k, v in CHANNEL.items()})
     summary.update({f"channel_oos/{k}": v for k, v in CHANNEL_OOS.items()})
+    # Section 7.4.  These are EXACT service brackets recovered from the
+    # 15-second poller logs, not mtime-interval midpoints, so they are kept in
+    # their own namespace rather than overwriting channel/*.  The two estimators
+    # share no input and agree 4/4, which is the whole point of publishing both.
+    summary.update({f"channel_exact/{k}": v for k, v in CHANNEL_EXACT.items()})
 
     # Tickets fired versus tickets scored.  Six receipts are terminal and carry
     # metrics; tickets 7 and 8 are on the channel and cannot be pooled yet, so
@@ -1172,11 +1325,49 @@ def run_crown_lottery(wandb, rows, cache, dry):
             b["p_crown_pct"],
             b["p_crown_pct_class_mean"],
         )
+    # Section 7.4.  Same mixed-type dict shape as channel_service_latency, so the
+    # same numbers/text split applies; kept separate because these two estimators
+    # must stay independently readable for the 4/4 cross-check to mean anything.
+    # CHANNEL_EXACT starts with a string key ("source"), and a wandb.Table column
+    # is typed by its FIRST row -- feeding None first would type value_num as
+    # None and silently drop every number after it.  channel_service_latency
+    # escapes this only by luck, because CHANNEL happens to start with an int.
+    # Emitting the numeric rows first makes the ordering explicit rather than
+    # accidental.
+    xt = wandb.Table(columns=["quantity", "value_num", "value_text"])
+    _xnum = [
+        (k, v)
+        for k, v in CHANNEL_EXACT.items()
+        if isinstance(v, (int, float)) and not isinstance(v, bool)
+    ]
+    _xtxt = [
+        (k, v)
+        for k, v in CHANNEL_EXACT.items()
+        if not (isinstance(v, (int, float)) and not isinstance(v, bool))
+    ]
+    for k, v in _xnum:
+        xt.add_data(k, float(v), "")
+    for k, v in _xtxt:
+        xt.add_data(k, None, str(v))
+    xb = wandb.Table(
+        columns=[
+            "submission_prefix",
+            "service_min",
+            "half_width_min",
+            "poll_gap_s",
+            "age_over_total",
+            "owner",
+        ]
+    )
+    for row in EXACT_BRACKETS:
+        xb.add_data(*row)
     run.log(
         {
             "draw_cdf": dt,
             "elasticity": et,
             "channel_service_latency": ct,
+            "channel_exact_service": xt,
+            "channel_exact_brackets": xb,
             "shot_budget": bt,
         }
     )

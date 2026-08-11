@@ -1187,10 +1187,25 @@ survivor bias with the survivors doing the biasing; the honest statement is
 
 For the same reason I report the count I threw away: **1818 rows were created and
 finished inside a single inter-snapshot gap** and are excluded from the
-statistics. They are excluded *because* they are the fast ones — including their
+statistics. ~~They are excluded *because* they are the fast ones — including their
 upper bounds would drag the estimate down exactly where I most need it not to be
 dragged. This is the one place in the campaign where discarding 99 % of the data
-is the conservative choice.
+is the conservative choice.~~
+
+> **RETRACTION 9 (added in §7.4).** The struck sentence is wrong, and it is wrong
+> in the direction that flattered me: it claims the exclusion is *informative*
+> (these rows are fast, so dropping them is conservative). It is not. The median
+> inter-snapshot gap is 23.4 min, the same order as the run-time floor measured in
+> §7.4, and many gaps are far larger (287.5 min, plus a 4.8 h hole) — so a
+> floor-length row fits inside almost any gap. **The exclusion is driven by
+> snapshot sparsity, i.e. by when I happened to look, not by how fast the rows
+> were.** Quantitatively: the upper bound `first_terminal_snapshot − created` is
+> ≥ the floor for **1818 of 1818** excluded rows, with a median of **13850 min
+> (9.6 days)**, because nearly all of them were created long before my first
+> snapshot. `--exclusion-check` on `fern_r109f_service_latency.py` prints this.
+> The statistics above are unaffected — the *number* was right and the *reason*
+> was wrong — but "discarding 99 % of the data is conservative" was never
+> established, and §7.4 shows the honest version of the test.
 
 **What it does to the shot budget.** 653 min remained to the 20:00Z deadline at
 the 09:06Z observation:
@@ -1342,6 +1357,301 @@ the ticket-7 row of the receipt ledger are necessarily deferred.
 
 
 
+### 7.4 The pollers were instruments all along — service is a constant run plus a variable queue
+
+§7.1 measured the channel by interval-censoring cache-file mtimes, and §7.2
+confirmed its direction out of sample. Both were built on the assumption that I
+had no finer observation of the channel than "when did I next refresh the table".
+That assumption was false, and the evidence was sitting in my own job logs.
+
+The submit-when-free poller prints one line every ~15 s: either
+`slot BUSY: <id> <status> created=<iso>` or `slot FREE`. **That is a 15-second
+resolution occupancy monitor for the whole account slot**, and I had been treating
+those logs as launch receipts. There are **ten** of them under the job-log
+directory, not the two I had been reading. `research/fern_r109f_poller_occupancy.py`
+parses them.
+
+#### (a) Exact service times, and an external check on §7.1
+
+The transition from the last `slot BUSY: X` to the first line that is not
+`BUSY: X` brackets X's completion to one poll interval:
+
+| receipt | service (min) | bracket width | age/total when first seen |
+|---|---|---|---|
+| `3275a9bd` | **22.743** ±1.050 | 126 s | 0.681 |
+| `ed40f3ee` | **22.986** ±0.517 | 62 s | 0.528 |
+| `0531544b` | **23.085** ±0.550 | 66 s | 0.482 |
+| `7eca997d` | **82.789** ±0.142 | **17 s** | 0.840 |
+
+This is a genuine external validation, because the two estimators **share no
+input**: §7.1 reads the mtimes of `/tmp/subs_p*.json`, this one reads poller
+stdout. **All 4 agree** with the §7.1 brackets. `7eca997d`'s coarse bound was
+≥82.03 min against an exact 82.789.
+
+Still-open lower bounds at the time of writing: `4be372f9` ≥32.77, `f2b23450`
+≥29.444, `2aedeb87` ≥18.141. Measured poll spacing: 15 s of sleep plus the API
+round trip gives a median 16–17 s (min 15, max 26) on the fast pollers, and 61–62 s
+or 121–126 s on the older 60 s/120 s ones — which is exactly why the older logs
+give ±1 min brackets and the new ones give ±8 s.
+
+#### (b) The headline: it is not a queue, it is a fixed-work pipeline plus a queue
+
+Three of the four exact values — from runs taken **hours apart**, one of them not
+even mine — cluster hard:
+
+> mean **22.938 min**, sd **0.1764**, **cv 0.769 %**, n=3
+
+A queue does not do that. Fixed work does: clone, `swift build`, the metallib
+compile, two benchmark legs, the correctness gates. So service decomposes as
+**a near-constant run plus a variable wait**, and subtracting the smallest exact
+run gives the implied queue component:
+
+| receipt | service | implied queue wait |
+|---|---|---|
+| `3275a9bd` | 22.743 | ~0 (the reference) |
+| `ed40f3ee` | 22.986 | 0.243 |
+| `0531544b` | 23.085 | 0.342 |
+| `f2b23450` | ≥29.444 | ≥6.70 |
+| `4be372f9` (t7) | ≥32.77 | ≥10.03 |
+| `7eca997d` | 82.789 | **60.046** |
+
+That reframes §7.1's central result. What degrades under load is **the queue, not
+the run** — and it explains why the censored set had a *longer* median than the
+completed set: censoring selects rows that are waiting, and waiting is the part
+with all the variance.
+
+**Said honestly.** A sample minimum is an *upper* bound on the population
+minimum, and length-biased sampling can only push observed values up. So the
+licensed claim is **"no observed shot cost less than 22.7 min"**, never "22.7 min
+is a hard floor". §7.4(f) tests it properly.
+
+#### (c) Length bias: a mechanism I cannot rule out, not a distortion I demonstrated
+
+My first draft of this section asserted that the age-at-first-sight ratios in the
+table above *demonstrated* inspection bias. They do not, and the arithmetic is
+one line: ratios 0.528, 0.840, 0.681, 0.482 give n=4, mean **0.633**, se **0.144**,
+so against the unbiased-inspection expectation of 0.5 for Uniform(0,1),
+**z = +0.92**. That is not a finding.
+
+Worse for the draft claim, length bias points the wrong way to explain the result:
+it over-samples *long* jobs, so it populates the tail, whereas **3 of my 4
+observations sit at the bottom** of the range. Length bias cannot manufacture the
+22.9 min cluster. It stays on the page as an acknowledged mechanism with an
+honest z, and nothing is built on it.
+
+#### (d) Self-wait is not contention: separating my own service from other people's
+
+The draft also summed every wait the pollers logged and called the total
+"contention loss". That **double-counts**, and the error is conceptual rather than
+arithmetic: when the poller waits on a submission that is *mine*, that wait *is*
+my own service time, already counted once as service. Only a wait on **someone
+else's** submission is an extra cost that my shot budget must carry.
+
+Ownership is settled by evidence, not assumption: every note this campaign wrote
+contains the string `maple-fern`, and the advisor's contain `maple-advisor`.
+
+- **Self-waits — NOT additive:** 11.37 min (`ed40f3ee`), 12.52 min (`0531544b`).
+- **Foreign waits — additive:** 13.38 min (`7eca997d`), 8.30 min (`3275a9bd`).
+  n=2, median **10.84 min**.
+
+Two observations is an **existence proof of an omitted cost**, and nothing more —
+far too few for a distribution. It is reported that way.
+
+#### (e) `account_share: 3` is the wrong model, and occupancy says so
+
+`CHANNEL["account_share"] = 3` encoded a head count: three parties on one
+account, so I get a third of the slots. `research/fern_r109f_slot_occupancy_share.py`
+measures what actually happened instead.
+
+First, a free exact bracket that costs no observation at all: **the 1-in-flight
+rule means that creating submission k+1 proves submission k was already
+terminal.** Applied to the advisor's own sequence that gives `3275a9bd` ≤24.932
+(poller exact: 22.743 — consistent) and **`f2b23450` ≤31.113**, which combined
+with the poller's ≥29.444 brackets it to **[29.44, 31.11] from two entirely
+independent facts**.
+
+Second, the occupancy itself. Since 06:00Z **all three** `morganmcg1` submissions
+were `maple-advisor` (`3275a9bd` 07:01:13, `f2b23450` 07:26:09, `7eca997d`
+07:57:16):
+
+> Contested window 07:01:13 → 09:20:12Z = **139.0 min**. The advisor held the slot
+> **136.6 min = 98.3 % occupancy**; idle **1.7 %**; and I won **0 of 3** slots.
+
+So the correct model is not "1/3 of the slots" but **"whatever a saturating
+contender leaves over, which is nothing"**. One party submitting back-to-back
+leaves no residual capacity regardless of how many parties are counted. This also
+independently reproduces §7.1's `idle ≈ 0` — from poller stdout at 15 s
+resolution rather than from mtime brackets.
+
+**Caveat, stated beside the number:** this is one window, one contender, n=3. It
+describes 07:01–09:20Z; it is not a forecast. Advisor saturation is a policy
+choice that can change in either direction, and if it stops, capacity reappears
+immediately.
+
+#### (f) Retraction 9, and how nearly I fooled myself confirming it
+
+§7.1 said the 1818 rows created and finished inside one snapshot gap were excluded
+*because they are the fast ones*. §7.4(b) makes that testable: with a run near
+22.9 min and a **median inter-snapshot gap of 23.4 min**, a floor-length row fits
+inside almost any gap, so the exclusion should be about **snapshot sparsity**
+instead. The banner is now in §7.1 in place.
+
+Confirming it took three attempts, and the first two are the instructive ones.
+
+**Attempt 1 — the triumphant, worthless count.** For each excluded row,
+`ub = first_terminal_snapshot − created` is a *hard* upper bound on its service.
+If a 22.9 min floor is real, essentially none may have `ub < 22.9`. Result:
+**0 of 1818 violations.** I nearly wrote that up as a floor confirmed on 500×
+more data than the n=3 that suggested it.
+
+**Attempt 2 — the power check that killed it.** `min(ub)` over all 1818 rows is
+**24.89 min**. Since that already exceeds 22.9, **not one row was even capable of
+failing the test**. The zero was a foregone conclusion; the power was exactly
+zero. *A test that cannot fail is not evidence.* The reason is that the median
+`ub` is **13850 min = 9.6 days**: almost every row was created long before my
+first snapshot, so `first_term` is merely "the first time I ever looked". That
+does settle Retraction 9 decisively — the bound is vacuous for **100 %** of the
+excluded rows, which is precisely the sparsity claim — but it says nothing about
+the floor.
+
+**Attempt 3 — reframing recovers real power for free.** An excluded row went
+terminal before the *next* snapshot after its creation, so for those rows `ub` is
+*exactly* `next_snapshot − created`. Therefore `ub < floor` happens **precisely
+when a row was observed while younger than the floor and was already terminal**.
+That converts the question into a directly checkable one that does not depend on
+how loose the historic bounds are:
+
+> Look at every row observed at age < floor. A run-time floor forbids any of them
+> from having been scored already.
+
+Result: **24 such observations, 24 still running, 0 counter-examples**
+(`morganmcg1` only: 7/7). This is independent of the poller brackets, because it
+reads *ages inside snapshots* rather than completion times.
+
+One confound has to be removed first, and it matters: **`failed` rows abort before
+the benchmark legs** (build error, correctness gate) and so are *legitimately*
+allowed under the floor. Only `accepted`/`rejected` rows paid for both legs and
+can falsify it. The tool exempts `failed` throughout; here 0 of the 24 were
+`failed` anyway.
+
+**And the power is graded, not uniform** — a row still running at age *a* only
+proves *its* service exceeded *a*, so observations far below the floor constrain
+little:
+
+| claim | rows proving it |
+|---|---|
+| service > 5 min | 16/24 |
+| service > 10 min | 11/24 |
+| service > 15 min | 7/24 |
+| service > 20 min | **2/24** |
+| service > 22.9 min | 0/24 |
+
+Strongest single lower bound: **22.41 min**. So the honest verdict is layered: a
+few-minute pipeline is **firmly excluded**; "22.9 exactly" is
+**consistent-but-not-pinned** by this test; and the cluster's *tightness*
+(sd 0.18 min) still rests on **n=3 alone**. What none of this touches is the
+queue — see (b).
+
+#### (g) What it means for the budget — and why I did not wire it in
+
+At the 09:53Z reading, 607 min remained:
+
+| model | min/shot | shots left |
+|---|---|---|
+| run-time floor alone | 22.7 | 26.7 |
+| §7.2 bracket median, service only | 29.6 | 20.5 |
+| floor + measured foreign wait | 33.6 | 18.1 |
+| worst exact service + foreign wait | 93.6 | 6.5 |
+
+The spread is a factor of **4**, which is the real finding: the shot budget is
+dominated by contention, not by the pipeline. `MIN_PER_SHOT` is **deliberately
+not updated** from these numbers, for the same reason as in §7.2 — a measurement
+and its confirmation have to stay separate, or the test quietly becomes a fit.
+The exact numbers live in a separate `CHANNEL_EXACT` dict.
+
+One caveat on this table, added after (h) was written: its "foreign wait" rows
+locate the contention at the **account** slot, and (h) shows that is the wrong
+address. The *magnitudes* survive — a shot really does cost between 22.7 and
+93.6 min — but the rows should be read as "wall clock lost to other people",
+not as "wall clock lost to the two other users of this account".
+
+#### (h) Whose queue is it? — the variable component is not mine to control
+
+(b) split service into a near-constant run and a variable queue. It did not say
+*whose* queue. The obvious suspect was the account's own 1-in-flight slot, and
+(e) had just measured **98.3 % occupancy** on it, which made that reading almost
+irresistible. It is also wrong, and the poller logs falsify it for free.
+
+The test is available because of how the pollers work: a submission created a
+few seconds after a logged `slot FREE` had, **by construction, no account-level
+queue ahead of it**. If the account slot were the variable component, every such
+submission should land in the run cluster.
+
+Two kinds of witness bound the moment the slot became available, and the *later*
+one is the tighter bound, so the tool takes the maximum of both: a logged
+`slot FREE` proves the slot was free at that instant, and a poll that saw a
+**different** submission holding the slot proves it was still busy then. Using
+only the first was a real error in my initial pass — it scored `7eca997d` as
+having waited 1935 s when `f2b23450` had in fact occupied the slot for most of
+that interval, and scored `3275a9bd` as having waited five hours when the slot
+was simply idle. In both readings the number is an **upper** bound on the
+account queue, never a point estimate, which is the direction that makes the
+conclusion safe.
+
+| submission | account queue | service (min) |
+|---|---|---|
+| `ed40f3ee` | ≤ 11 s | 22.986 |
+| `0531544b` | ≤ 7 s | 23.085 |
+| `f2b23450` | ≤ 68 s | ≥ 29.444 |
+| `7eca997d` | ≤ 100 s | 82.789 |
+| `4be372f9` (t7) | ≤ 9 s | ≥ 57.4 (open) |
+| `3275a9bd` | slot idle ≥ 307 min — **unknown** | 22.743 |
+
+**Five of six** observed submissions took the slot within 120 s of it freeing,
+and their service still spans **22.99 → 82.79 min, a factor of 3.60**. Winning
+the slot instantly buys a run-cluster service time sometimes and a 3× service
+time other times. The variance therefore lives in a queue I do not share an
+account with: the **global runner pool**, driven by every other solver's
+submissions.
+
+This **refines (e) rather than contradicting it.** The 98.3 % account occupancy
+is a real cost — it is why I won 0 of 3 slots in that window and could not
+submit at all. But it is a cost sitting *on top of* an exogenous queue, and no
+amount of poller discipline touches the exogenous part. The practical reading is
+uncomfortable and worth stating plainly: **the two levers are not
+substitutable.** A faster poller wins slots; nothing I control shortens the run
+once won.
+
+It also rescues the run cluster from a confound I should have raised in (b). If
+the tight cluster were merely "three draws from one quiet hour", the tightness
+would be an artefact of load rather than evidence of fixed work. It is not: the
+22.743 min member was created at **07:01Z**, only **56 min before** the 82.789
+min member. Fixed work, bursty queue.
+
+**The convergence.** The median service *given the slot was won instantly* is
+**29.44 min**. §7.1's all-solver bracket-midpoint median, computed from cache
+file mtimes over a mostly disjoint row set, is **29.61 min**. Two estimators
+built from inputs that share nothing — one reads poller stdout, the other reads
+filesystem timestamps — land **0.17 min (10 seconds) apart**. That is the
+strongest support the ~30 min planning figure has, and it is stronger than
+either estimator alone could ever be.
+
+Two honest limits. The conditional sample is **n=5**, of which **2 are still
+open**, so its median can only move **up** as those submissions complete — the
+number is a lower bound on itself. And `3275a9bd` is excluded from the
+conditional set because no poller observed the slot near its creation; its
+queue must in fact have been ≈0, since it hit the sample minimum and
+service ≥ run, but that is an inference from the model rather than an
+observation, so it stays out of the count.
+
+**What §7.4 cost:** no builds, no submissions, no slots — four scripts reading
+logs I had already written. The lesson generalises past this campaign: **I had
+been running a 15-second-resolution instrument for hours and reading it as a
+receipt.** Before building a new measurement, check what the existing logs
+already record. The second lesson is (h)'s: having decomposed a quantity into
+two parts, ask **who owns each part** before spending effort on the one you
+cannot move.
+
 ---
 
 ## 8. Recommendations
@@ -1480,9 +1790,32 @@ public receipt list; nothing here is a transcribed number I cannot regenerate.
 
 | run | what it holds |
 |---|---|
-| [`fern-r109f-instrument-collapse`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/xtvnzjtr) | per-leg **robust** median/sd/cv with the plain moments and a `tail_inflation_x` column beside them (§5.3i), the 0.2393 % robust code-spread ceiling *and* the 1.7131 % plain one it replaced, the k=3 identical-executable gauge to 3 df with receipts-per-arm on every leg (`leg_gauge_k3`), the `MLX_SDPA_BLOCKS` local sweep, the host-drift control, the receipts-per-arm power table on both estimators, the measured channel service time (`channel_service_latency`, §7.1) with its out-of-sample confirmation under `channel_oos/*` (§7.2), the `tickets/*` block separating eight tickets *prepared* from six receipts *measured*, and **eight** retractions/corrections with corrected numbers |
+| [`fern-r109f-instrument-collapse`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/xtvnzjtr) | per-leg **robust** median/sd/cv with the plain moments and a `tail_inflation_x` column beside them (§5.3i), the 0.2393 % robust code-spread ceiling *and* the 1.7131 % plain one it replaced, the k=3 identical-executable gauge to 3 df with receipts-per-arm on every leg (`leg_gauge_k3`), the `MLX_SDPA_BLOCKS` local sweep, the host-drift control, the receipts-per-arm power table on both estimators, the measured channel service time (`channel_service_latency`, §7.1) with its out-of-sample confirmation under `channel_oos/*` (§7.2), the `tickets/*` block separating eight tickets *prepared* from six receipts *measured*, and the retraction table whose length is echoed into the `retractions/count` scalar |
 | [`fern-r109f-crown-lottery`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/jrwlrn2k) | the draw-factor CDF, p(crown)/shot at **both** our best observed normalized value and the atlas-v3 class mean with the ×3.3 selection-bias factor between them, crown code-rank vs luck-rank, the elasticity table now divided by the *measured* 27.98 min/shot instead of the invented 22.0, and the `shot_budget` table |
 | [`fern-r109f-arms`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/aiwlu7z6) | the local 2×2 arm ledger and every ranked receipt with normalized score and draw factor in separate columns |
+
+> **The dashboard is one section behind this document, deliberately.** The triple
+> above was minted at 09:37Z and is the triple cited by the published
+> `submit_experiment_result` record. §7.4 (the exact service brackets, the
+> occupancy measurement, retraction 9, and the §7.4(h) queue-ownership
+> decomposition) was derived *after* that publication, so the three live runs do
+> **not** contain `channel_exact/*`, the `channel_exact_service` and
+> `channel_exact_brackets` tables, or the ninth retraction row: their
+> `retractions/count` reads **8** while this document now lists **9**. That gap is
+> stated rather than closed, for one reason worth naming. Closing it means
+> re-running `fern_r109f_wandb_run.sh`, and because no `id` is pinned that mints a
+> *fourth* triple and retires these three — which would break the one property
+> §7.2 depends on, namely that the 09:19Z channel prediction is frozen in a run
+> that was published *before* the confirming snapshot existed. A dashboard I can
+> silently refresh is not evidence of a prediction; a stale dashboard plus a
+> git-dated document is. So the ordering is: §7.4's numbers are wired into
+> `fern_r109f_wandb_campaign.py` **now** (verified by `--dry-run` and, because a
+> dry run never reaches `run.log()`, separately by
+> `research/fern_r109f_check_wandb_tables.py`, which constructs the real
+> `wandb.Table` objects offline and asserts column count, row count and first-row
+> typing — FAILURES: 0), and they reach W&B on the next publication that has an
+> independent reason to happen. Until then, treat the run cells above as "what the
+> script logs", and this line as the record of which rows are not yet up there.
 
 > **On run ids.** `wandb.init(name=…)` with no fixed `id` mints a fresh run on
 > every publication, so these URLs are the *current* triple and supersede five
@@ -1534,6 +1867,18 @@ matter most, so their provenance is spelled out):
 | `research/artifacts/fern-r109f/ab/score.sdpablocks-*.json` (8 files) | the sealed local sweep behind CORRECTION 5 (local decode cv ≈0.35 %) and behind the `MLX_SDPA_BLOCKS` null; every file carries `passed: true` and golden `b9509697c08a2cf3` |
 | `research/artifacts/fern-r109f/notes/ticket7-preregistered-note.md` | the ticket-7 prediction, registered *before* the receipt was fired |
 | git tags `pkg-t1`…`pkg-t6` | the identical-executable claim, verifiable offline: `git diff pkg-t4 pkg-t5` and `git diff pkg-t5 pkg-t6` add **zero** non-comment lines |
+
+**Added with §7.4** (the exact-service-bracket section, whose entire input is a
+by-product of infrastructure written for another purpose):
+
+| tool / artifact | what it establishes |
+|---|---|
+| `research/fern_r109f_poller_occupancy.py` | §7.4(a)–(d) and §7.4(h): parses the `slot BUSY: <id> <status> created=<iso>` / `slot FREE` lines out of every poller log into exact service brackets, dedupes a submission that several overlapping pollers saw, prints the poll-interval distribution that sets each bracket's width, separates self-wait from foreign-wait, and computes the account-level queue upper bound from the tighter of two witnesses (last logged FREE, last poll seeing a *different* submission busy) |
+| `research/fern_r109f_slot_occupancy_share.py` | §7.4(e): that `account_share: 3` was a guess and the measurable quantity is occupancy — 98.3 % of the contested 139.0 min window held by one contender, 1.7 % idle, 0 of 3 slots won by me — plus the 1-in-flight rule as a *free* exact upper bound (`f2b23450` ≤31.113 min) that independently brackets a poller lower bound of ≥29.444 |
+| `research/fern_r109f_service_latency.py --exclusion-check` | retraction 9's three attempts, including the two numbers that killed attempt 1 (`min(ub)` = 24.89 min > the 22.9 floor ⇒ power 0; median excluded `ub` = 13850 min ⇒ vacuous for 100 %) and the graded power of attempt 3 (24 observations, 0 counter-examples, 11 proving >10 min, 2 proving >20 min) |
+| `research/fern_r109f_check_wandb_tables.py` | that the §7.4 W&B wiring actually works, which `--dry-run` **cannot** show because a dry run never reaches `run.log()`. It builds the real `wandb.Table` objects offline and asserts column count, row count, and first-row typing — the exact failure mode that killed run `f9wyuoxq` |
+| the ten poller logs under the job-log directory | the raw evidence. They were written as 15-second liveness monitors for a submission poller; §7.4 is entirely a re-read of logs that already existed, which is why the section cost zero builds and zero submission slots |
+
 
 **Local-only git objects, and what should happen to them.** Three things exist
 in this worktree that a reviewer cloning the branch will *not* see, so they are
