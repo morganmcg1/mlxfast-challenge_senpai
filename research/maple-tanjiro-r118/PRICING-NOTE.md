@@ -43,20 +43,40 @@ stronger, not weaker.
 
 ## What the correction *does* say
 
-It says the prize on this target is real and it is all in the dispatch structure,
-where R114-E has just demonstrated a working remedy. Alphonse removed 40
-dispatches (406 → 366) and realised 76.8 µs/step for +0.45 %; that is **1.92 µs
-per dispatch actually realised**, against the campaign's audited Rule 55
-per-dispatch intercept of 3.97 µs — a 48 % realisation, which is itself a useful
-number and is consistent with my τ.
+It says the prize on this target, if there is one, is not in the kernel interior.
+It does **not** say the prize is 0.44 %.
 
-The shared gate+up QMV issues **39 dispatches per step**. If the same realised
-rate transferred, absorbing them is worth 39 × 1.92 = **75 µs/step,
-core-count invariant**, i.e. 0.75 × 75/8972 = 0.63 % at τ=1 and ≈ 0.44 % at
-alphonse's realised τ. That is above the bar with room.
+### Correction against myself, second order: I mis-read R114-E too
 
-Two reasons to hold that estimate at arm's length, stated here so nobody quotes
-the 0.44 % without them:
+An earlier draft of this note divided alphonse's realised 76.8 µs/step by his 40
+removed dispatches, got **1.92 µs per dispatch**, and extrapolated 39 × 1.92 =
+**75 µs/step** onto this target. I have now read #700's own terminal result
+rather than the campaign summary of it, and **that extrapolation is wrong.
+Alphonse explicitly refutes it in his own §6.3.**
+
+His mechanism was not dispatch removal. It was **grid-append absorption**: he
+appended `gate_sp`'s tiles onto the existing lane-major QKV grid, and 93.8 % of
+`gate_sp`'s serialised busy time was absorbed into cores that were previously
+idle (`N-GRIDAPPEND-ABSORBS-LATENCY`). His numbers:
+
+- the audited **dispatch tax is 0.4478 µs/dispatch**, which over −40 dispatches
+  predicts **17.9 µs/step**;
+- he measured **76.8 µs/step = 4.29× the dispatch tax**;
+- and the surplus is co-scheduling, not launch cost.
+
+So 1.92 µs/dispatch is not a transferable per-dispatch price; it is 0.4478 µs of
+dispatch tax plus a large absorption term that is only available to a kernel
+**launching fewer threadgroups than the machine has cores**. `gate_sp` launches
+**8 threadgroups on 20 cores**. That is the cell.
+
+**The honest dispatch-structure bound for this target is therefore
+39 × 0.4478 = 17.5 µs/step**, which is **~4× below the 68.7 µs/step bar** — not
+75 µs/step, and not above the bar at all. The corrected number kills my own
+follow-on rather than supporting it, so I am recording it in the same document
+that made the error.
+
+Two further reasons the absorption route is not available here, which I had
+already stated and which the primary source now confirms:
 
 1. **The target is not in alphonse's absorption cell.** `gate_sp` launches 8
    threadgroups on a 20-core machine (0.4 per core) and was idling the GPU; the

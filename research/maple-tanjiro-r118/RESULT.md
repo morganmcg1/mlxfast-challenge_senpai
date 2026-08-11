@@ -117,8 +117,42 @@ The pre-registered decision rule therefore fires: **`d1`'s 95 % upper bound
 quarters of this kernel's reads does not reach the bar, so nothing that preserves
 correctness can.
 
+Both of Rule 105.12's floors are cleared *against* the candidate: the bytes-bound
+bar is 68.7 M4 us/step and the latency-bound floor is 60.0 M4 us/step, and d1's
+upper bound is below both.
+
 Per the landing rule I ship only on a verified positive interval excluding zero.
 There is none here that clears the bar. **Do not land.**
+
+### The blind spot in my own instrument (read this before trusting the negative)
+
+My dose arms vary in-kernel work at **fixed dispatch count, fixed grid, fixed
+threadgroup shape**. Alphonse's R114-E result (#700, §6.1) shows that exact ruler
+reading *flat* on `gate_sp` — 3.7x fewer memory instructions moved wall only 3.98
+us/step — while the family was in fact worth **-76.8 us/step, 19x larger**,
+because the time was recoverable **only by co-scheduling** (appending tiles onto
+a neighbour's grid so idle cores absorb them). A ruler like mine would have closed
+his family by mistake.
+
+So my result closes the kernel **interior** and does not close **co-scheduling**.
+I did not measure that route and I do not claim it. It is, however, priced by
+others, and both prices are under the bar:
+
+| route | instrument | bound | bar | verdict |
+|---|---|---:|---:|---|
+| interior rewrite | my dose ruler, **measured here** | **<= +41.7 us/step** (95 % UB) | 68.7 | fails |
+| dispatch tax | 39 x 0.4478 us/dispatch, audited (not mine) | 17.5 us/step | 68.7 | fails |
+| co-scheduling / grid append | #700 follow-up (1), his 29.4 % discount (not mine) | 25-30 us/step | 68.7 | fails |
+
+Alphonse's absorption gate is *TG count below core count*: `gate_sp` launches 8
+threadgroups on 20 cores (0.4/core) and was idling the machine; **this target
+launches 256 (12.8/core)** and is not, so the absorption term that supplied 4.29x
+his dispatch tax has no source here. And his own follow-up list prices
+"shared-expert SwiGLU into the routed SwiGLU grid" — which *is* this target — at
+**25-30 us/step**, under the bar even before it is bundled.
+
+Full argument, with the instrument rule I recommend adopting, in
+`CO-SCHEDULING-BLIND-SPOT.md`.
 
 ---
 
@@ -133,9 +167,19 @@ There is none here that clears the bar. **Do not land.**
   family is not in an occupancy-starved regime, and the routed family at 8x the
   threadgroup count shows the *linear* byte response, not a flat one.
 - **H-fixed (fixed per-dispatch cost): survives.** 39 dispatches/step x the
-  audited 3.97 us Rule-55 intercept = **155 us/step of floor**, which is 2.3x the
-  entire 68 us excess. The excess is comfortably inside the dispatch structure,
-  not inside the kernel text.
+  audited Rule-55 intercept of 3.97 us = **155 us/step**, 2.3x the entire 68 us
+  excess. **That 155 is a SPLIT=1 busy-side number and must not be read as wall.**
+  Its source (nezuko's R93-C census) states it explicitly: *"this intercept is a
+  SPLIT=1 quantity... every overhead-recovery figure derived from it is therefore
+  an upper bound"*, and roughly half of it is irreducible launch/teardown that
+  survives any merge (an empty serialized dispatch measures 0.87-2.46 us).
+  Converted at my measured tau band [0.29, 0.79] it is **45-122 us/step of wall**,
+  which still brackets the 68 us excess — so the conclusion holds, but as a
+  bracket, not as a 2.3x margin. Per-family intercepts also disagree with the
+  pooled fit (qkv 2.29 us, oproj 8.39 us), so the pooled 3.97 is not a precision
+  instrument for one family. The *realisable* number is the audited SPLIT=0
+  dispatch tax, 0.4478 us/dispatch = 17.5 us/step. Either way the excess sits in
+  dispatch structure and not in the kernel text.
 - **H-hidden: partly refuted** — see `INTERPRETATION.md`.
 
 This also answers (c): the family does carry `lagunaSharedSwiGLUQMVHeader`, which
@@ -166,11 +210,17 @@ reach the core-scalable interior, and the prize moves entirely into dispatch
 structure. Note also that the pre-registered P0 band of 700-900 us was 0.60x too
 generous, recorded in `SMOKE.md` at the time rather than quietly retuned.
 
-The follow-on that this implies — 39 dispatches x alphonse's realised 1.92
-us/dispatch = **75 us/step, core-count invariant, ~0.44-0.63 %** — I hold at
-arm's length for two stated reasons: this target is not in the absorption cell at
-12.8 TG/core, and it has no free merge partner. I am not claiming it; I am
-recording it so the next person does not have to re-derive it.
+**And a second error inside the correction.** An earlier draft of `PRICING-NOTE.md`
+divided alphonse's 76.8 us/step by his 40 removed dispatches, got 1.92
+us/dispatch, and extrapolated 39 x 1.92 = **75 us/step** as an above-bar follow-on
+for this target. Having now read #700's terminal result rather than the campaign's
+summary of it, **that extrapolation is wrong and he refutes it himself** (§6.3):
+the audited dispatch tax is **0.4478 us/dispatch** (17.9 us/step over his 40), and
+his measured 76.8 was **4.29x** that — the surplus being grid-append absorption
+available only to a kernel launching fewer threadgroups than the machine has
+cores. Corrected, the dispatch-structure bound here is 39 x 0.4478 =
+**17.5 us/step, ~4x below the bar**. The correction destroys my own follow-on, and
+it is recorded in the document that made the error.
 
 ---
 
@@ -206,5 +256,6 @@ left rankable.
 - `SMOKE.md` — positive-control calibration, including where the pre-registration was wrong
 - `INTERPRETATION.md` — the four hypotheses and their adjudication
 - `PRICING-NOTE.md` — the mis-pricing correction against myself
+- `CO-SCHEDULING-BLIND-SPOT.md` — the one route this instrument cannot see, and its independent pricing
 - `D0-A2-IS-THE-SAME-BINARY.md`, `D0b-IS-PREFILL-ADJUDICABLE.md` — the out-of-band asks
 - `evidence/` — raw logs, per-step CSVs, analyser JSON, equivalence log, profile capture
