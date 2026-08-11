@@ -64,3 +64,6 @@ local-docs/
 .env
 __pycache__/
 **/__pycache__/
+
+# TEMPORARY (R118-A): live evidence dir is written by a running job; re-added with git add -f at the end
+research/maple-tanjiro-r118/evidence/
