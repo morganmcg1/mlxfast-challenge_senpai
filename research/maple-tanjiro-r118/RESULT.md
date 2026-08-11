@@ -281,8 +281,10 @@ left rankable.
 
 - Not that the kernel is optimal — only that its *interior* cannot yield 68
   us/step, because deleting 75 % of it does not.
-- Not that the 75 us/step dispatch-structure follow-on is available. It is an
-  upper bound with two known obstructions.
+- Not that a dispatch-structure follow-on is available for this family. The
+  audited realisable rate is 0.4478 us/dispatch = **17.5 us/step**, ~4x below the
+  bar; the larger Rule-55-intercept figure is a SPLIT=1 upper bound, not a
+  proposal. Section 5 records that I had this wrong at 75 us/step and why.
 - Not any two-build comparison anywhere: one binary, one env var, everything
   paired within a session.
 - No unaudited numbers: every figure here traces to a committed CSV or log.
@@ -295,5 +297,6 @@ left rankable.
 - `INTERPRETATION.md` — the four hypotheses and their adjudication
 - `PRICING-NOTE.md` — the mis-pricing correction against myself
 - `CO-SCHEDULING-BLIND-SPOT.md` — the one route this instrument cannot see, and its independent pricing
+- `HOST-HYGIENE.md` — two host-hygiene violations during orderA, disclosed, with the falsifier
 - `D0-A2-IS-THE-SAME-BINARY.md`, `D0b-IS-PREFILL-ADJUDICABLE.md` — the out-of-band asks
 - `evidence/` — raw logs, per-step CSVs, analyser JSON, equivalence log, profile capture
