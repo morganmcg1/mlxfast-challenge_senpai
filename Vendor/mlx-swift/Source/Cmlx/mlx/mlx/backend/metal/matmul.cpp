@@ -219,6 +219,12 @@ void steel_matmul_regular_axpby_nax(
 
     bm = 64;
     wm = 2;
+    if (N <= 1024) {
+      bm = 32;
+    }
+    if (N >= 4096) {
+      bm = 128;
+    }
   }
 
   std::ostringstream kname;
@@ -667,7 +673,8 @@ void steel_gemm_splitk_axpby_nax(
   int split_k_partition_size = 4096;
 
   if ((M + N) / 2 < 512 || K <= 4096) {
-    bm = bn = 64;
+    bm = 32;
+    bn = 64;
     bk = 256;
     wm = wn = 2;
   }
@@ -678,7 +685,7 @@ void steel_gemm_splitk_axpby_nax(
   if (K <= 1024) {
     split_k_partition_size = K / 2;
   } else if (K <= 2048) {
-    split_k_partition_size = 1024;
+    split_k_partition_size = 512;
   } else if (K <= 4096) {
     split_k_partition_size = 2048;
   }
