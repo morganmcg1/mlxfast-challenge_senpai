@@ -873,3 +873,102 @@ layer's residual-add epilogue — the shape
 40 dispatches with **no redundant-reduction exposure**, which is precisely the
 term that sank this attempt. That is the version of this idea worth assigning.
 
+
+---
+
+## 16. Revision rev5 — the R116-A answer (advisor comment 5248135695, 01:54Z)
+
+**The submitted surface is still A2 and only A2, byte for byte.** Re-verified at
+this head:
+
+```
+$ git --no-pager diff --numstat e400de7d095ffcfcde0462b174c7d22d737496fd HEAD \
+    -- Sources Vendor benchmark.json Package.swift
+17  0  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+```
+
+rev5 adds one research-only file and changes no code. The head is frozen for
+A2's M5 receipt: **I do not rebase it and I do not spend a submission slot.**
+
+### 16.1 The kill on norm->QKV fusion is confirmed, in full
+
+`research/maple-tanjiro-r110/N-NORM-QKV-FUSION-ALREADY-SHIPPED-AND-DEAD.md`
+carries the three grep-level confirmations the advisor asked for:
+
+| claim | verdict | evidence |
+|---|---|---|
+| `lagunaNormAffineQKV` ships and is default-ON | **confirmed** | `LagunaRuntimeModel.swift:5482-5483` |
+| its guard wants `bits == 8`, the shipped bank is NVFP4 `bits = 4` | **confirmed** | guard `:5926-5932` vs bank `:3048-3054` = `(.nvfp4, 16, 4)`; all three conditions fail, every layer, every step |
+| zero dispatches in profiling | **confirmed** | `grep -ci "norm_affine_qkv" stage0-evidence/N.log` -> **0**; the census shows `decode_nvfp4_qkv_h64` 30/step and `rmsbfloat16` 41/step instead |
+
+**I accept the `N-SOLE-PRODUCER-WIDTH-RATIO` family placement and decline the
+escape hatch.** My mechanism is not outside nezuko's family; it is the same
+rung-1a object. I am not building the NVFP4 port.
+
+### 16.2 The two numbers are not in conflict — and the gap is explained
+
+My **+17.2 us/step** (measured, shipped int8 fusion) and nezuko's **+560 us/step**
+(priced, hypothetical NVFP4 port) are different objects with one differing
+structural parameter:
+
+| | shipped int8 fusion | NVFP4 port |
+|---|---|---|
+| grid | `((rows/8)*64,1,1)` (`:5538`) | `((rows/2)*64,1,1)` (`lagunaDecodeNVFP4QKVR1`) |
+| rows per threadgroup | **8** | **2** |
+| threadgroups for the same rows | 1x | **4x** |
+| redundant-reduction exposure | 1x | **4x** |
+
+Same verdict, and the 4x structural penalty is the direction my write-up's §7
+predicted before nezuko's number was visible. Nothing here rehabilitates the
+direction.
+
+### 16.3 Stage 0 was not void, and this is the only part worth keeping
+
+The guard is **satisfiable legally**: `DARKBLOOM_NATIVE_AFFINE_NVFP4=0` selects
+group-32 affine INT8 for Q/K/V/O, which is inside the accepted envelope
+(`TASK.md:78-94`). So Stage 0 converted "shipped but dead" into a **measured
+price** on the one bank where the code runs, rather than a paper estimate.
+
+Repriced under the advisor's corrected law (`%score = 0.75 x tau x d_us / 8972`,
+tau ~ 1.06 for real DRAM removal):
+
+| quantity | rev4 statement | corrected |
+|---|---|---|
+| ceiling of the whole direction (77.4 us/step) | 0.54 % | **+0.69 %** |
+| measured outcome (-17.2 us/step) | -0.12 % | **-0.15 %** |
+| Stage-1 entry bar | +35.7 us/step | **+28.1 us/step** |
+
+The bar tightened and the arm still misses it by **more than 10x**. Verdict
+unchanged; the miss is structural.
+
+### 16.4 A2's read rule, recorded so it is not misapplied
+
+The advisor fires A2, not me. When the receipt lands, read it **only** on raw
+`prefill_seconds_per_token` (sd **0.2033 %/draw**) — never `officialScore`
+(sd 0.4938 %) and never the paired ratio (**9.28x worse**). Preregistered against
+the n=4 HEAD-class mean **187.8728 us**:
+
+```
+d = 100 * (187.8728 - p_A2) / 187.8728
+d >= +0.46 %  -> confirm
+|d| < 0.46 %  -> inconclusive
+d <= -0.46 %  -> revert
+```
+
+Prefill elasticity is **0.250**, not the 0.362 used in §3/§5.3. Every prefill
+price in §3–§5 is therefore **~31 % too generous** and should be scaled by
+`0.250/0.362 = 0.690` when read. A2's honest ceiling becomes **0.24–0.32 %**
+(from 0.35–0.46 %) and its realistic band **0.08–0.21 %** (from 0.11–0.30 %) —
+i.e. under the corrected elasticity A2 now sits *below* R113's +0.25 % bar in
+the realistic case and only its ceiling reaches it. That is a material downgrade
+of §14.2's "straddles the bar" claim and I am recording it against my own arm.
+
+### 16.5 One honest tension I could not resolve
+
+The tau ~ 0 constant for threadgroup geometry was measured in the **saturated**
+regime. A2's entire rationale (§14.4) is the **under-filled** regime — 64
+threadgroups on 40 cores, where wave quantization is exactly what geometry
+controls. Those are not obviously the same tau. I cannot settle it locally,
+because A2 is `_nax`-gated and this host is Apple GPU generation 16. Flagged
+rather than resolved.
+
