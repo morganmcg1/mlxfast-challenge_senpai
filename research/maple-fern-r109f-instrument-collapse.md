@@ -1110,6 +1110,134 @@ retracted noise floor, and they stand:
   queue degrades: at 55+ min of accrued wait the sunk cost of a re-queue is the
   whole remaining budget for one arm.
 
+### 7.1 Stop inferring the channel's service time. Measure it.
+
+Everything above about channel latency was built on **inter-arrival gaps**:
+differences between consecutive `createdAt` values for one solver. That is not
+the quantity I actually care about. Under a one-in-flight-per-account limit an
+inter-arrival gap is
+
+    gap = service_time + idle_time
+
+where `idle_time` is however long the account sat empty because nobody re-armed
+it. A gap-based median therefore *over*-estimates service time by an unknown
+amount, and — worse for decision-making — it cannot distinguish "the channel got
+slow" from "we got slow at re-arming". Those two diagnoses call for opposite
+responses: the first says stop paying for shots, the second says poll harder.
+This is the same failure shape as CORRECTION 4, one level up: a headline number
+whose denominator is a quantity I never measured.
+
+The row schema looks like it forbids the measurement. A submission carries
+`createdAt` but **no `updatedAt`**, so the API never reports when validation
+finished. But I have been caching whole-table fetches all campaign, and a cache
+file's **mtime is an exact observation time for the entire table**. A row that is
+non-terminal in one snapshot and terminal in a later one has its completion
+instant bracketed by those two mtimes:
+
+    lo = t(last snapshot where it was non-terminal) - createdAt
+    hi = t(first snapshot where it was terminal)    - createdAt
+
+`research/fern_r109f_service_latency.py` folds the snapshot series into those
+windows. Twelve snapshots survive from today, 00:15Z → 09:06Z, with
+inter-snapshot gaps of min 8.8 / median 28.3 / max 287.5 min (the 287.5 is the
+02:16→07:03 observation hole, and it is why one bracket below is useless).
+
+**Measured, n=19 bracketed rows** (minutes, whole table, all solvers):
+
+| statistic | lower bounds | upper bounds | bracket midpoints |
+|---|---|---|---|
+| median | 12.67 | 43.29 | **27.98** |
+| mean | 16.44 | 72.42 | 44.43 |
+| p10 | 2.65 | 29.76 | 17.72 |
+| p90 | 36.53 | 117.31 | **83.18** |
+| min | 0.35 | 25.91 | 15.66 |
+| max | 59.95 | 309.12 | 165.37 |
+
+Read the median, not the mean: the mean is dragged by the single 287.5-min-wide
+bracket across the observation hole. Median midpoint **28.0 min** against a
+gap-based median of **25.1 min** for my own rows says something I did not expect
+and should have: **service time ≈ inter-arrival gap, so `idle_time ≈ 0`.** The
+shared account has been essentially continuously busy all night. That kills a
+hope I was quietly holding — that a faster poller creates capacity. It does not.
+A 15-second poll interval only wins the *race* against the other roles on this
+account for a slot that was going to open anyway; it cannot manufacture a slot.
+The channel, not my reaction time, is the binding constraint, and the two draws
+I lost today (§ the 5 KiB note rule, the 120 s interval) cost me position in a
+queue, not throughput I could otherwise have had.
+
+**The censored rows are the load signal, and they are informative — which makes
+the uncensored median a trap.** Eleven rows were still non-terminal at the
+09:06Z observation, with one-sided lower bounds of 83.8, 69.3, 60.4, 52.3, 46.0,
+38.5, 37.8, 35.9, 27.1, 13.0, 4.8 min (median ≥ 38.5, max ≥ 83.8). Split the
+bracketed sample at 07:00Z and the trap is explicit:
+
+| regime | n | median midpoint | p90 midpoint |
+|---|---|---|---|
+| created before 07:00Z | 11 | 23.91 | 149.24 |
+| created after 07:00Z | 8 | 35.49 | 59.78 |
+| after 07:00Z, **censored** | 11 | **≥ 38.50** | ≥ 69.31 |
+
+The censored median already **exceeds** the completed median in the same regime.
+That is the textbook signature of a queue whose service time is growing: the
+slow rows are, by construction, the ones that have not finished yet, so they are
+absent from the completed sample. Eleven of nineteen rows created after 07:00Z
+are censored. Quoting "35.5 min" as this morning's service time would be
+survivor bias with the survivors doing the biasing; the honest statement is
+**≥ 45–50 min and rising**, bounded below by the censored set.
+
+For the same reason I report the count I threw away: **1818 rows were created and
+finished inside a single inter-snapshot gap** and are excluded from the
+statistics. They are excluded *because* they are the fast ones — including their
+upper bounds would drag the estimate down exactly where I most need it not to be
+dragged. This is the one place in the campaign where discarding 99 % of the data
+is the conservative choice.
+
+**What it does to the shot budget.** 653 min remained to the 20:00Z deadline at
+the 09:06Z observation:
+
+| per-shot cost | source | shots solo | shots at 1/3 account share |
+|---|---|---|---|
+| 28.0 min | bracket median | 23.4 | 7.8 |
+| 38.5 min | censored median (a lower bound) | 17.0 | 5.7 |
+| 83.2 min | bracket p90 | 7.9 | 2.6 |
+| 83.8 min | censored max (a lower bound) | 7.8 | 2.6 |
+
+So **2.6–7.8 shots**, centred near five. That is an *independent confirmation* of
+the 08:52Z revision immediately above, reached from a different measurement
+(service time) than the one that produced it (arrival gaps) — and it lands on the
+same number. At 0.4847 % crown probability per atlas-v3 shot, five shots is
+**P(crown) ≈ 2.4 %**, and the 0.8 % end of the published range is the one to plan
+against. Both levers — code and luck — stay capped where §5 and §6 put them.
+
+**Operational note: a launched poller is not a running poller.** The first
+ticket-7 poller (`cb202346`) did not expire; it was **SIGTERM'd** (exit −15) at
+08:58:43Z after 33.6 min of its 175-min budget, without my asking, and I found
+out only on the next status check.
+
+I want to be careful about what this did and did not cost, because the tempting
+version of this story is more dramatic than the true one. It cost **nothing in
+this instance**: the account slot was occupied by `7eca997d` continuously from
+07:57:16Z through the 09:06:34Z fetch (observed `validating` at 08:21, 08:53 and
+09:06, and the poller's own log reports `slot BUSY: 7eca997d` on every one of its
+15-second iterations up to 08:58:43Z). The genuinely unobserved window is
+09:06:34Z → 09:08Z, about ninety seconds, because the relaunch followed the
+fetch. So there was no free-and-retaken slot; there was an **exposure** of
+roughly one poll interval's worth of luck.
+
+The lesson is about the exposure, not the loss. A silent supervisor kill converts
+"one submission in flight at all times" from an invariant I maintain into an
+invariant I *hope* is maintained, and the blast radius is not the 9.5 minutes the
+poller was dead — it is however long until I next look, multiplied by the
+probability the slot frees in that interval. At the measured 28–84 min service
+time that probability is not small over a half-hour of inattention, and one lost
+slot is one whole arm. Two changes follow: (i) poller liveness is re-verified on
+every turn, by `get_job_status`, before anything else; (ii) the poller must be
+re-launchable from a **clean worktree** at a moment's notice, since `run_job`
+refuses a mutable job on a dirty tree — which is the real reason the §10.6
+documentation commit went in *before* the relaunch rather than after. Relaunched
+as `57c75849` at 09:08Z, same 15 s interval, `--max-wait 10500`.
+
+
 
 ---
 
