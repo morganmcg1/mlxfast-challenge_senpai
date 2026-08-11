@@ -408,7 +408,7 @@ public func gatherSort(
     expertBoundsSidecar: Bool = false
 ) -> (MLXArray, MLXArray, MLXArray) {
     let m = indices.dim(-1)
-    if expertBoundsSidecar, indices.size == 4096,
+    if indices.size == 4096,
         let path = ProcessInfo.processInfo.environment["F322_ROUTE_KEYS_PATH"],
         !FileManager.default.fileExists(atPath: path)
     {
