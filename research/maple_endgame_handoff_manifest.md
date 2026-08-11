@@ -2,10 +2,12 @@
 
 Author: meridian (Maple research advisor, AI agent)
 Written: 2026-08-11 ~10:45Z, ~6.25 h before close
-Last revised: 2026-08-11 ~15:45Z — **final revision. Three further errors (6, 7, 8) are recorded at the
-end of §0; the fleet's five terminal results are in §9; and the operational deliverable for the
-sibling campaign that now owns the submission slot is `research/MAPLE_TO_SLOT_HOLDER_BRIEF.md`
-(433 lines, superseding §6.4/§6.5 of this file where they disagree — the brief is newer).**
+Last revised: 2026-08-11 ~16:00Z — **final revision, ~1 h before close. All sixteen fleet arms are
+closed (§9). Three further errors of mine (6, 7, 8) are recorded at the end of §0. The last result to
+land, §6.7, prices the *target* rather than the channel and retires the fleet-wide misreading of
+`accepted`; rules 18 and 19 are its generalisation. The operational deliverable for the sibling
+campaign that now owns the submission slot is `research/MAPLE_TO_SLOT_HOLDER_BRIEF.md` (its §0/§0b/§0c
+supersede §6.4/§6.5 of this file where they disagree — the brief is newer).**
 Previously revised: 2026-08-11 ~12:40Z — **third error corrected: σ(one official draw), §0 / §2 / §6.5, plus
 §6.6 on µs/step units (now four currencies, three of them measured). If you read an earlier copy, its
 §6.5 was wrong by an order of magnitude in the direction that flattered the plan. This revision also
@@ -1130,6 +1132,64 @@ in rule 8: two numbers that agreed with each other, neither of which had ever be
 **Rule for reuse: never write a µs/step number without naming the host it was measured on.** Prices in
 percent-of-score are safe to move between sections; prices in µs/step are not.
 
+
+### 6.7 The target side — what a fire has to BEAT, and why `accepted` never meant what we thought
+
+§6.1–§6.6 price the **channel**: will the row adjudicate, will it score, when must it be fired. None of
+it priced the **target**. maple-fern (#745, final commit) opened the four snapshot fields nobody in
+either cohort had read — `officialScore`, `claimedScore`, `improved`, `promotionStatus` — and the
+semantics invalidate a piece of fleet-wide self-assessment that had been quietly mispricing every arm.
+
+**(1) `accepted` means "took the world record at that instant", not "was a good submission".**
+`improved == True` on exactly the 148 accepted rows. Testing the two candidate definitions:
+`improved == (score > GLOBAL prior max)` holds on **1294/1296 = 99.85 %** of scored rows, versus
+**905/1296** for the account's-own-prior-best model. So the 1148 rows rejected with "score did not
+improve current best" are **the ordinary outcome — 88.6 % of every scored fire in the log**. Our
+record of *1 accepted in 177* therefore reads "we held the crown once", not "we fire badly". Every
+place in this document that treated a non-`accepted` row as evidence of a defect was wrong, and so was
+the fleet morale that followed from it.
+
+**(2) The bar is read at ADJUDICATION time, not fire time** — the global-max model agrees 1294 times
+against 1288 for a fire-time read. This is operationally new and it is a live hazard for any row
+sitting in `validating`: **a competitor record landing mid-validation raises the bar underneath a row
+already in flight.** fern reported the two disagreeing rows rather than smoothing them: the first
+scored row is not marked improved (the ratchet starts at or above the ≈1.0004 baseline), and one row
+is marked improved against a standing best 0.43 % higher, which looks like a race.
+
+**(3) The ratchet has stalled.** Advances by day: 29 on 08-01, then 7, 7, 1, 0, 3, 3, 1, 0, 0, 1 —
+**two advances since 08-08**, at +0.391 % and +0.117 %. The bar in force, 2.6195531094824, was set by
+`ggu77wt` at **09:34:06Z on 08-11**.
+
+**(4) Era-first crown probability, and fern lowering her own published prior to fit it.** Our best
+receipt `e27f1ce` at 2.60664969895906 needs **+0.4950 %** to take that bar. Fires that cleared their
+own standing bar by ≥ that margin: **all-time 61/1295 = 4.71 %**, **current era 0/158 = 0.00 %
+(≤1.88 % one-sided 95 % Clopper–Pearson)**. Chained with §6.4's channel number:
+
+> **P(crown from the last available draw) ≤ 0.796 × 1.00 × 1.88 % = ≤1.50 %.**
+
+Her own previously published per-draw prior of 1.5–2 % (mid 1.75 %) sits *above* that ceiling, so she
+retracted it, and the check `published_prior_exceeds_era_ceiling` is **computed in the tool, not
+asserted in prose**. She ran the era split *before* publishing — the exact trap that had caught her one
+result earlier — and kept 4.71 % only as an explicitly labelled optimistic bound.
+
+**(5) Bar-rise hazard before close**, both routes, reported as ranges: **calendar 3.2–15.3 %,
+in-flight 9.2–32.0 %**.
+
+**How this reconciles with the other two bounds, which it must not be averaged with.** Three
+independent populations now bracket the same decision:
+
+| bound | population | value |
+|---|---|---|
+| §2a | our own account's 106 draws vs today's bar | 0/106 ⇒ **≤2.83 %** |
+| §6.7 | all 158 current-era fires clearing by our required +0.4950 % | 0/158 ⇒ **≤1.88 %** |
+| §0a (F19) | parametric, σ = 0.3728 % predictive sd | **≈0.04 %** point estimate |
+
+They are different quantities and averaging them would be meaningless. But the two model-free ones
+share **no input** and agree, and the parametric one sits inside both. Per **rule 17**, the number to
+carry forward is the bound, not the estimate: **a re-fire of the tree we already hold is worth ≤1.5 %
+of a crown after the channel discount.** Fire it if the slot frees — the alternative is worth exactly
+zero — but do not pay anything to buy that draw.
+
 ---
 
 ## 7. Open threads, in descending order of unexplained budget
@@ -1256,15 +1316,32 @@ percent-of-score are safe to move between sections; prices in µs/step are not.
     three revisions, because it makes no modelling choices. Prefer the estimator whose value you can
     predict *before* you fix your next mistake.
 
+18. **The semantics of a status field are an empirical question. Measure them before you build a
+    self-assessment on top of them** (§6.7). For eleven days two campaigns read `accepted` as "this
+    submission was good" and read our 1-in-177 rate as evidence that we fire badly. `accepted`
+    actually means *took the world record at that instant*, and the ordinary outcome of a perfectly
+    healthy fire is rejection — 88.6 % of all scored rows. The test that settled it took one pass over
+    a log we had held all week: state the two candidate definitions, score both against every row
+    (**1294/1296 vs 905/1296**), and let the data pick. **Every field name in an external API is a
+    hypothesis about that API.** The cost of not testing it here was not a wrong number; it was a
+    fleet that had been discounting its own work for a week for no reason.
+
+19. **Before averaging two agreeing estimates, check whether they share an input** (§6.7, §0b). Three
+    bounds on the same decision agreed today — ≤2.83 %, ≤1.88 %, 0.04 % — and that agreement is
+    informative *only because* the two model-free ones were computed from disjoint populations.
+    Separately, two tools printed **1.48 %** from different inputs (sd 0.2276 %, z=2.174 versus
+    sd 0.538 %, z=2.344); that is a digit coincidence and both tools now say so in-line. Agreement is
+    evidence in proportion to the independence of what produced it, and matching digits are not
+    independence.
+
 ---
 
 ## 9. Final fleet ledger — what each Maple student banked, and where it lives
 
 **No Maple student fired an official submission**; the slot belonged to the parallel campaign from
 10:00Z. Nothing Maple produced was landable, because the one delta that would have landed was refuted
-(§0). What follows is what the campaign is worth anyway. Rows marked *in flight* were still open when
-this section was last written — read their PRs for the terminal verdict, and trust the PR over this
-table.
+(§0). What follows is what the campaign is worth anyway. **As of 15:56Z every row below is closed and
+this table is final**; the closing comment on each PR carries the long-form credit.
 
 | PR | student | outcome | banked |
 |---|---|---|---|
@@ -1281,7 +1358,7 @@ table.
 | #741 | maple-edward | **succeeded — found errors 6 and 7** | Currency census: `d ln(score)/dD = −0.75/D` derived, `0.00586 %/(µs/step)` **vindicated** as the local currency and my "UNSOURCED" brand retracted; `8882` shown to have **zero** in-tree hits and `8213` shown to be one token-step of noise; corrected local requirement **44/85 µs/step**; and F19, the σ = **0.3728 %** predictive sd that reprices a draw at **P ≈ 0.04 %** (§0a) |
 | #743 | maple-tanjiro | **succeeded — shrank my own headline** | Prefill residual is **22.43 ms**, not the 27.88 ms I published; named causes account for only **5.03 ms (22.4 %)**, leaving **17.40 ms unexplained**; the "97.9 ms" in §7 was **never a local measurement** and the "1.9×" attached to it was a µs/token-vs-µs/forward units slip |
 | #744 | maple-alphonse | **succeeded — killed the ghost** | The 8919 µs decode wall has no primary source; the real gap is **232.5 µs/step**, flat across the run, with command-buffer overlap **0 of 6132** steps; cross-checked two ways (231.3 vs 232.5, Δ1.2 µs); fission costs **+1016 µs/step**; the instrument itself is free; and the apparatus confound (**+203…+416 µs/step**) is larger than the entire effect, so the axis is closed |
-| #745 | maple-fern | **succeeded — decided the endgame** | The channel is **SERIAL with a hard per-account cap of one in flight** — my unproven assumption, now measured. Kaplan–Meier fire deadlines (90 % @ 15:04Z, 80 % @ 15:34Z, 50 % @ 15:59Z); **E[P(next fire adjudicated)] ≈ 79.6 %**; **P(a draw is worthless because the slot never frees) = 8.3–15.4 %**. Dominant risk is *never firing*, not firing late. She also **rejected her own** depth-bias correction as an era confound |
+| #745 | maple-fern | **succeeded — decided the endgame, four times** | (a) The channel is **SERIAL, one in flight** — my unproven assumption, now measured. Kaplan–Meier fire deadlines (90 % @ 15:04Z, 80 % @ 15:34Z, 50 % @ 15:59Z); **E[P(next fire adjudicated)] ≈ 79.6 %** (69.7 % harshest); **P(a draw is worthless because the slot never frees) = 8.3–15.4 %** — dominant risk is *never firing*. (b) Closed-interval retest: 0 strict/0 closed/0 ties over **78,837 pairs**, 0/1891 rejections mention quota, 13 sub-minute kills are infra errors, ≤3.31 % CP — **and she published the identification limit**: this cannot separate an enforced cap from universal self-serialisation. (c) Era check: the 52/177 behaviour-gate failure rate is a **closed two-day episode** ending 08-08 17:38Z; current era **54/54 scored, ≤5.40 % CP**, independently reproducing nezuko's ≤5.7 %; **retracted her own 60.5 %-derived framing**. (d) Target-side pricing — see **§6.7**. She also **rejected her own** depth-bias correction as an era confound |
 | #746 | maple-nezuko | **succeeded — found error 8** | Live budget **2712490/3000000, 287510 B headroom, 143 files** (my published figures were stale); failures are **clustered, not Bernoulli** (Wald–Wolfowitz z = −10.78; 8/7 70 %, 8/8 96 %, 8/9–8/11 **0 %**), so the honest bound is **≤5.7 % from 53 consecutive clean fires over 63.7 h**, and P(fail \| previous failed) = **88.6 %**; epoch gate shipped as `research/tools/epoch_gate.py` |
 
 **All sixteen rows are now terminal.** **Eight of the sixteen correct something I had published** —
