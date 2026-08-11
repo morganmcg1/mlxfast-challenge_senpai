@@ -369,9 +369,23 @@ public final class LagunaRuntimeWeightCache {
     public let libraryModel: LagunaRuntimeModel?
     public let loadError: Error?
 
+    private static let startupDiagnosticsEnabled =
+        ProcessInfo.processInfo.environment["DARKBLOOM_ROUTER_STARTUP_DIAGNOSTICS"] == "1"
+
+    private static func startupDiagnostic(_ phase: String) {
+        guard startupDiagnosticsEnabled else { return }
+        let line = "mlxfast: router-startup phase=\(phase)"
+            + " uptime=\(ProcessInfo.processInfo.systemUptime)"
+            + " active=\(Memory.activeMemory)"
+            + " cache=\(Memory.cacheMemory)"
+            + " peak=\(Memory.peakMemory)\n"
+        FileHandle.standardError.write(Data(line.utf8))
+    }
+
     public init(loader: LagunaWeightLoader, config: LagunaConfig) {
         self.loader = loader
         self.config = config
+        Self.startupDiagnostic("init.begin")
         // Select the startup memory profile BEFORE the model load. Laguna
         // retains no alternate weight layouts. The full profile installs the
         // qualified BFS scheduler and post-wire command-buffer defaults below;
@@ -424,12 +438,15 @@ public final class LagunaRuntimeWeightCache {
             startupMemoryPolicy = nil
         }
         do {
+            Self.startupDiagnostic("load.begin")
             libraryModel = try LagunaRuntimeWeightCache.loadLibraryModel(
                 loader: loader,
                 config: config
             )
+            Self.startupDiagnostic("load.end")
             loadError = nil
         } catch {
+            Self.startupDiagnostic("load.error")
             libraryModel = nil
             loadError = error
         }
@@ -441,12 +458,16 @@ public final class LagunaRuntimeWeightCache {
         // keeps tiny unit-test configurations from paying a full-size
         // warmup.
         if let model = libraryModel, config.numHiddenLayers >= 16 {
+            Self.startupDiagnostic("warm.begin")
             Self.warmLibraryModel(model)
+            Self.startupDiagnostic("warm.end")
             if startupMemoryPolicy?.clearAllocatorCacheAfterWarmup == true {
                 // Pipeline state is process-lifetime state, while free
                 // warmup allocations are exactly the pressure a low-memory
                 // machine cannot afford to retain before the protocol hello.
+                Self.startupDiagnostic("cache-clear.begin")
                 Memory.clearCache()
+                Self.startupDiagnostic("cache-clear.end")
             }
         }
         // Zero-headroom wired residency (notes/47 §4e follow-up, session
@@ -492,6 +513,7 @@ public final class LagunaRuntimeWeightCache {
         if libraryModel != nil, config.numHiddenLayers >= 16 {
             Self.wireResidentWeightsIfEnabled()
         }
+        Self.startupDiagnostic("init.end")
     }
 
     /// One prefill-shaped forward (512 tokens) and one single-token decode
@@ -506,10 +528,15 @@ public final class LagunaRuntimeWeightCache {
             Array(repeating: bosToken, count: 512),
             [1, 512]
         )
+        startupDiagnostic("warm.prefill.begin")
         eval(model(prefillTokens, cache: warmupCache))
+        startupDiagnostic("warm.prefill.end")
         let decodeToken = MLXArray([bosToken], [1, 1])
+        startupDiagnostic("warm.decode.forward.begin")
         var warmDecodeLogits = model(decodeToken, cache: warmupCache)
+        startupDiagnostic("warm.decode.forward.end")
         eval(warmDecodeLogits)
+        startupDiagnostic("warm.decode.eval.end")
         // The historical full-attention bundle coupled this second whole-model
         // decode to the fusion selector and regressed ranked prefill 11.3%.
         // Reproducing that retired rewarm now requires its own explicit
@@ -520,13 +547,17 @@ public final class LagunaRuntimeWeightCache {
         if lagunaFusedFullAttentionEnabled,
             lagunaFusedFullAttentionWholeModelWarmupEnabled
         {
+            startupDiagnostic("warm.decode-second.begin")
             warmDecodeLogits = model(decodeToken, cache: warmupCache)
             eval(warmDecodeLogits)
+            startupDiagnostic("warm.decode-second.end")
         }
         if lagunaFusedFullAttentionEnabled,
             lagunaFusedFullAttentionKernelWarmupEnabled
         {
+            startupDiagnostic("warm.attention-kernel.begin")
             lagunaWarmFullFusedAttentionKernel()
+            startupDiagnostic("warm.attention-kernel.end")
         }
         // Warm the greedy-token pipeline too. Every scored worker request ends
         // in `LagunaCorrectness.greedyToken` (reshape -> last row -> argMax),
@@ -543,8 +574,10 @@ public final class LagunaRuntimeWeightCache {
         if ProcessInfo.processInfo.environment["DARKBLOOM_WARM_GREEDY_ARGMAX"] != "0",
             let vocabSize = warmDecodeLogits.shape.last, vocabSize > 0
         {
+            startupDiagnostic("warm.argmax.begin")
             let rows = warmDecodeLogits.reshaped([-1, vocabSize])
             eval(rows[-1].argMax())
+            startupDiagnostic("warm.argmax.end")
         }
     }
     /// See the construction-time comment: one `set_wired_limit` call sized
@@ -653,20 +686,32 @@ public final class LagunaRuntimeWeightCache {
         loader: LagunaWeightLoader,
         config: LagunaConfig
     ) throws -> LagunaRuntimeModel {
+        startupDiagnostic("load.metadata.begin")
         try loader.validateRequiredMetadata(config: config)
+        startupDiagnostic("load.metadata.end")
         let model = LagunaRuntimeModel(config)
+        startupDiagnostic("load.model-init.end")
 
+        startupDiagnostic("load.arrays.begin")
         let loadedWeights = try loadRuntimeWeightArrays(denseStore: loader.denseStore)
+        startupDiagnostic("load.arrays.end")
         let sanitized = model.sanitize(weights: loadedWeights)
+        startupDiagnostic("load.sanitize.end")
         // Poolside stores dense parameters in BF16 and NVFP4 scales in U8, so
         // the library's fp16->bf16 conversion pass is a no-op and is omitted.
+        startupDiagnostic("load.update.begin")
         try model.update(parameters: ModuleParameters.unflattened(sanitized), verify: [.all])
+        startupDiagnostic("load.update.end")
+        startupDiagnostic("load.eval.begin")
         eval(model)
+        startupDiagnostic("load.eval.end")
         // Build the retained fused weight layouts (fused QKV, fused
         // shared-expert gate/up; see the DARKBLOOM_FUSED_* flags) from the
         // now-materialized checkpoint arrays, before the constructor-time
         // warmup so the fused kernels warm with their production shapes.
+        startupDiagnostic("load.fused.begin")
         model.prepareFusedRuntimeWeights()
+        startupDiagnostic("load.fused.end")
         return model
     }
 
