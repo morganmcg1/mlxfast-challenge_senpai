@@ -38,6 +38,17 @@ behaviourally and dispatch-identical to the base unless the variable is set.
 frieren measured `+4.67 ± 0.68` on a different base. Two independent instruments
 agree that TG=256 is the *slower* geometry.
 
+**End-to-end confirmation (§7), 16 mirrored slots, `SPLIT=0` fused schedule:**
+wall decode is `8210.67` vs `8209.94` µs/step, paired
+**Δ = −0.73 ± 11.41 µs/step, CI95 [−19.33, +17.86]**, 2/4 blocks and 4/8 mirror
+pairs positive; the mean-centre estimator flips the sign to `+0.99`. A flat null
+at `|Δ| < 0.015 %` of wall. This instrument is too coarse to *see* §1's
+`+4.73 µs/step` (that is `+0.058 %` of wall, four times below its SEM), so §7
+does not confirm the regression — but the `+0.38 %` gain the landing was
+premised on requires **`Δ = −41.4 µs/step`**, which sits 3.6 σ outside the
+interval. The benefit is excluded; only the sign of the (small) harm is beyond
+this instrument's reach.
+
 **What should be submitted:** nothing from this branch. The current best
 (`2.6195531094824` at organizer commit `4ea72c3`) should stand; landing TG=256
 would ship a measured regression on the strength of a misread column. I fired no
@@ -485,3 +496,54 @@ against landing an unpaid geometry change on M4 evidence alone.
    re-deriving the kernels, but the default is `64`.
 4. **No official submission.** Per the assignment, the advisor owns submission; I
    ran none. On this evidence I recommend not firing one on this premise.
+
+## 7. End-to-end wall A/B (`SPLIT=0`), 16 slots
+
+§1's `+4.73 us/step` is a *kernel-isolated* number: it is measured with
+`DARKBLOOM_SHARED_QMV_SPLIT=1`, which forces a separate command encoding for the
+shared-expert SwiGLU QMV so the kernel's own cost is readable. That is the right
+instrument for attributing the geometry effect, but it is not the scored
+quantity. This section measures the same two arms with `SPLIT=0` — the ordinary
+fused-schedule decode path — and asks the only question that matters for
+landing: does the shipped wall time move?
+
+Design: 4 blocks x 4 slots, mirrored `64, 256, 256, 64` inside each block so a
+monotone thermal or clock drift cancels within a block *and* within each mirror
+pair. 400 decode steps per slot, first 16 discarded, per-step centre taken twice
+(median and mean) so the conclusion cannot rest on one estimator. 40 C cool gate
+before every slot. Harness `research/maple_r125a_wall.sh`, analyser
+`research/maple_r125a_wall_analyze.py`, raw slot logs under
+`/tmp/maple-r125a-wall`.
+
+| centre | arm mean TG=64 | arm mean TG=256 | block-paired delta | CI95 | blocks + | mirror-pair delta | CI95 | pairs + |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| median | 8210.67 us/step | 8209.94 us/step | **-0.73 +/- 11.41** | [-19.33, +17.86] | 2/4 | **-0.73 +/- 9.57** | [-18.21, +17.00] | 4/8 |
+| mean | 8215.22 us/step | 8216.21 us/step | **+0.99 +/- 13.58** | [-21.24, +23.23] | 2/4 | **+0.99 +/- 11.69** | [-20.01, +22.87] | 4/8 |
+
+This is a textbook null: the point estimate flips sign between the two centres,
+its magnitude is under 1 us/step on an 8210 us/step wall (**|delta| < 0.015 %**),
+and exactly half of the blocks and half of the mirror pairs fall on each side.
+
+**What this does and does not settle.** The wall instrument's paired SEM is
+about +/- 11 us/step, i.e. +/- 0.14 % of wall. The §1 kernel effect,
+`+4.73 us/step`, is `+0.058 %` of wall — *four times below this instrument's
+resolution*. So §7 honestly cannot confirm §1's regression end to end; a real
+`+4.73 us/step` debit is invisible here and I will not claim otherwise. What §7
+does do is close the other direction with authority. The advisor's landing
+premise was a `+0.38 %` score gain; on the 75/25 decode/prefill weighting a
+decode-only `+0.38 %` score movement needs
+**`delta = -41.4 us/step`** of wall. That value sits 3.6 sigma outside the
+median-centre CI and 3.1 sigma outside the mean-centre CI, and no individual
+block of the four comes anywhere near it (worst block for TG=64 is
+`-24.41 us/step`, and its mirror block is `+25.85 us/step`). The claimed benefit
+is excluded by this measurement even though the measured harm is too small for
+it to see.
+
+**Correctness inside the timed arms.** All 12 non-reference slots emitted
+`TOKENS_IDENTICAL` against their block's slot-1 reference — 400 greedy decode
+tokens each, at both widths, under the fused schedule. That is on top of the
+independent 200-step teacher-forced certificate in §3.
+
+Reading §1 and §7 together: TG=256 is a small real debit on the kernel and a
+statistical no-op on the wall. Neither reading supports landing it, and §7 is
+the one that rules out the gain that was supposed to justify it.

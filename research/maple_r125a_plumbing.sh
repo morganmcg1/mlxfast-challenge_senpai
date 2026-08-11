@@ -40,8 +40,8 @@ apply_delivered() {
   git apply -R research/r125a-tg256-fused-guard.patch || return 1
   git apply research/r125a-tg256-default-flip.patch || return 1
   grep -n "else { return 256 }" "${SRC}" | head -1
-  echo -n "fused guard lines still present: "
-  grep -c "lagunaSharedSwiGLUQMVThreadgroupWidth == 64" "${SRC}"
+  # grep -c exits 1 on a zero count, which is the expected result here
+  echo "fused guard lines still present: $(grep -c "lagunaSharedSwiGLUQMVThreadgroupWidth == 64" "${SRC}" || true)"
 }
 
 build_worker() {
